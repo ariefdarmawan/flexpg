@@ -81,36 +81,7 @@ func (c *Connection) EnsureTable(name string, keys []string, obj interface{}) er
 	if v.Kind() == reflect.Ptr {
 		v = v.Elem()
 	}
-	if v.Kind() == reflect.Map {
-		if v.Type().Key().String() != "string" {
-			return errors.New("object should be a struct or map of string")
-		}
-		keys := v.MapKeys()
-		for _, key := range keys {
-			fieldName := key.String()
-			fieldType := v.MapIndex(key).Type().String()
-			if fieldType == "string" {
-				fieldType = "text"
-			} else if fieldType != "interface{}" && strings.HasPrefix(fieldType, "int") {
-				fieldType = "integer"
-			} else if strings.Contains(fieldType, "time.Time") {
-				fieldType = "timestamptz"
-			} else if fieldType == "float32" {
-				fieldType = "numeric (32,8)"
-			} else if fieldType == "float64" {
-				fieldType = "numeric (64,8)"
-			} else if fieldType == "bool" {
-				fieldType = "boolean"
-			} else {
-				return fmt.Errorf("field %s has unmapped pg data type. %s", fieldName, fieldType)
-			}
-			if toolkit.HasMember(keys, fieldName) {
-				fields = append(fields, fmt.Sprintf("%s %s PRIMARY_KEY", strings.ToLower(fieldName), fieldType))
-			} else {
-				fields = append(fields, fmt.Sprintf("%s %s", strings.ToLower(fieldName), fieldType))
-			}
-		}
-	} else if v.Kind() == reflect.Struct {
+	if v.Kind() == reflect.Struct {
 		t := v.Type()
 		fnum := t.NumField()
 		for i := 0; i < fnum; i++ {
@@ -143,7 +114,7 @@ func (c *Connection) EnsureTable(name string, keys []string, obj interface{}) er
 			}
 		}
 	} else {
-		return errors.New("object should be a struct or map of string")
+		return errors.New("object should be a struct")
 	}
 
 	cmdTxt := fmt.Sprintf(tableCreateCommand, name, strings.Join(fields, ", "))
