@@ -7,6 +7,7 @@ import (
 
 	"git.kanosolution.net/kano/dbflex"
 	"github.com/eaciit/toolkit"
+	"github.com/smartystreets/goconvey/convey"
 	cv "github.com/smartystreets/goconvey/convey"
 )
 
@@ -39,13 +40,13 @@ func TestMigration(t *testing.T) {
 		defer conn.Close()
 
 		cv.Convey("migrate", func() {
-			if !conn.HasTable(tableName) {
-				err = conn.EnsureTable(tableName, []string{"ID"}, new(TestData))
+			if conn.HasTable(tableName) {
+				err = conn.DropTable(tableName)
 				cv.So(err, cv.ShouldBeNil)
-			} else {
-				err = conn.EnsureTable(tableName, []string{"ID"}, new(TestData))
-				cv.So(err, cv.ShouldNotBeNil)
 			}
+
+			err = conn.EnsureTable(tableName, []string{"ID"}, new(TestData))
+			cv.So(err, cv.ShouldBeNil)
 
 			cv.Convey("validate ", func() {
 				has := conn.HasTable(tableName)
@@ -61,19 +62,33 @@ func TestQueryM(t *testing.T) {
 		cv.So(err, cv.ShouldBeNil)
 		defer conn.Close()
 
-		cv.Convey("querying", func() {
-			cmd := dbflex.From(tableName).Select()
-			cur := conn.Cursor(cmd, nil)
-			cv.So(cur.Error(), cv.ShouldBeNil)
+		convey.Convey("insert", func() {
+			data := toolkit.M{}.
+				Set("id", "TestData1").
+				Set("title", "Title aja lah").
+				Set("datadec", 80.32).
+				Set("created", time.Now())
 
-			cv.Convey("get results", func() {
-				ms := []toolkit.M{}
-				err := cur.Fetchs(&ms, 0)
-				cv.So(err, cv.ShouldBeNil)
+			cmd := dbflex.From(tableName).Insert()
+			_, e := conn.Execute(cmd, toolkit.M{}.Set("data", data))
+			cv.So(e, convey.ShouldBeNil)
 
-				toolkit.Logger().Infof("\nResults:\n%s\n", toolkit.JsonString(ms))
+			cv.Convey("querying", func() {
+				cmd = dbflex.From(tableName).Select()
+				cur := conn.Cursor(cmd, nil)
+				cv.So(cur.Error(), cv.ShouldBeNil)
+
+				cv.Convey("get results", func() {
+					ms := []toolkit.M{}
+					err := cur.Fetchs(&ms, 0)
+					cv.So(err, cv.ShouldBeNil)
+					cv.So(len(ms), cv.ShouldBeGreaterThan, 0)
+
+					toolkit.Logger().Infof("\nResults:\n%s\n", toolkit.JsonString(ms))
+				})
 			})
 		})
+
 	})
 }
 

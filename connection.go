@@ -73,6 +73,12 @@ func (c *Connection) NewQuery() dbflex.IQuery {
 	return q
 }
 
+func (c *Connection) DropTable(name string) error {
+	cmd := "DROP TABLE " + name
+	_, e := c.db.Exec(cmd)
+	return e
+}
+
 func (c *Connection) EnsureTable(name string, keys []string, obj interface{}) error {
 	tableCreateCommand := "CREATE TABLE %s (%s);"
 
