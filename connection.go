@@ -94,6 +94,10 @@ func (c *Connection) EnsureTable(name string, keys []string, obj interface{}) er
 			f := t.Field(i)
 			fieldName := f.Name
 			alias := f.Tag.Get(toolkit.TagName())
+			originalFieldName := fieldName
+			if alias == "-" {
+				continue
+			}
 			if alias != "" {
 				fieldName = alias
 			}
@@ -113,7 +117,7 @@ func (c *Connection) EnsureTable(name string, keys []string, obj interface{}) er
 			} else {
 				return fmt.Errorf("field %s has unmapped pg data type. %s", fieldName, fieldType)
 			}
-			if toolkit.HasMember(keys, fieldName) {
+			if toolkit.HasMember(keys, originalFieldName) {
 				fields = append(fields, fmt.Sprintf("%s %s PRIMARY KEY", strings.ToLower(fieldName), fieldType))
 			} else {
 				fields = append(fields, fmt.Sprintf("%s %s", strings.ToLower(fieldName), fieldType))
