@@ -92,6 +92,7 @@ func (c *Connection) EnsureTable(name string, keys []string, obj interface{}) er
 		fnum := t.NumField()
 		for i := 0; i < fnum; i++ {
 			f := t.Field(i)
+			tag := f.Tag
 			fieldName := f.Name
 			alias := f.Tag.Get(toolkit.TagName())
 			originalFieldName := fieldName
@@ -117,11 +118,18 @@ func (c *Connection) EnsureTable(name string, keys []string, obj interface{}) er
 			} else {
 				return fmt.Errorf("field %s has unmapped pg data type. %s", fieldName, fieldType)
 			}
-			if toolkit.HasMember(keys, originalFieldName) {
-				fields = append(fields, fmt.Sprintf("%s %s PRIMARY KEY", strings.ToLower(fieldName), fieldType))
-			} else {
-				fields = append(fields, fmt.Sprintf("%s %s", strings.ToLower(fieldName), fieldType))
+			options := []string{}
+			if toolkit.HasMember(keys, originalFieldName) || toolkit.HasMember(keys, fieldName) {
+				options = append(options, "PRIMARY KEY")
 			}
+			if _, ok := tag.Lookup("required"); ok {
+				options = append(options, "NOT NULL")
+			}
+			fields = append(fields, strings.Replace(fmt.Sprintf("%s %s %s",
+				strings.ToLower(fieldName),
+				fieldType,
+				strings.Join(options, " ")),
+				"  ", " ", -1))
 		}
 	} else {
 		return errors.New("object should be a struct")
