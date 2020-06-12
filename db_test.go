@@ -80,7 +80,7 @@ func TestQueryM(t *testing.T) {
 
 				cv.Convey("get results", func() {
 					ms := []toolkit.M{}
-					err := cur.Fetchs(&ms, 0)
+					err := cur.Fetchs(&ms, 0).Close()
 					cv.So(err, cv.ShouldBeNil)
 					cv.So(len(ms), cv.ShouldBeGreaterThan, 0)
 
@@ -110,7 +110,7 @@ func TestQueryObj(t *testing.T) {
 					DataDec float64
 					Created time.Time
 				}{}
-				err := cur.Fetchs(&ms, 0)
+				err := cur.Fetchs(&ms, 0).Close()
 				cv.So(err, cv.ShouldBeNil)
 
 				toolkit.Logger().Infof("\nResults:\n%s\n", toolkit.JsonString(ms))
@@ -126,13 +126,16 @@ func TestDate(t *testing.T) {
 		defer conn.Close()
 
 		cv.Convey("save date data", func() {
-			cmd := dbflex.From(tableName).Update().Where(dbflex.Eq("ID", "date1"))
+			cmd := dbflex.From(tableName).Insert()
 			obj := new(TestData)
 			obj.ID = "date1"
 			obj.Title = "Date 1"
 			obj.DataDec = 305
 			obj.Created = toolkit.String2Date("01-Apr-1980 00:00:00", "dd-MMM-yyyy HH:mm:ss")
-			_, err := conn.Execute(cmd, toolkit.M{}.Set("data", obj))
+			if _, err = conn.Execute(cmd, toolkit.M{}.Set("data", obj)); err != nil {
+				cmd = dbflex.From(tableName).Update().Where(dbflex.Eq("ID", "date1"))
+				_, err = conn.Execute(cmd, toolkit.M{}.Set("data", obj))
+			}
 			cv.So(err, cv.ShouldBeNil)
 
 			cv.Convey("compare equal date", func() {
