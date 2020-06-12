@@ -12,7 +12,7 @@ import (
 // Query implementaion of dbflex.IQuery
 type Query struct {
 	rdbms.Query
-	db         *sql.DB
+	conn       *Connection
 	sqlcommand string
 }
 
@@ -40,7 +40,15 @@ func (q *Query) Cursor(in toolkit.M) dbflex.ICursor {
 	}
 	cursor.SetCountCommand(cq)
 
-	rows, err := q.db.Query(cmdtxt)
+	var (
+		rows *sql.Rows
+		err  error
+	)
+	if q.conn.IsTx() {
+		rows, err = q.conn.tx.Query(cmdtxt)
+	} else {
+		rows, err = q.conn.db.Query(cmdtxt)
+	}
 	if rows == nil {
 		cursor.SetError(toolkit.Errorf("%s. SQL Command: %s", err.Error(), cmdtxt))
 	} else {
@@ -105,7 +113,15 @@ func (q *Query) Execute(in toolkit.M) (interface{}, error) {
 	}
 
 	//fmt.Println("Cmd: ", cmdtxt)
-	r, err := q.db.Exec(cmdtxt)
+	var (
+		r   sql.Result
+		err error
+	)
+	if q.conn.IsTx() {
+		r, err = q.conn.tx.Exec(cmdtxt)
+	} else {
+		r, err = q.conn.db.Exec(cmdtxt)
+	}
 
 	if err != nil {
 		return nil, toolkit.Errorf("%s. SQL Command: %s", err.Error(), cmdtxt)

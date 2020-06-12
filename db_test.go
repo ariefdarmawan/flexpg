@@ -156,6 +156,104 @@ func TestDate(t *testing.T) {
 	})
 }
 
+func TestRollback(t *testing.T) {
+	cv.Convey("connecting", t, func() {
+		conn, err := connect()
+		cv.So(err, cv.ShouldBeNil)
+		defer conn.Close()
+
+		cv.Convey("save date data", func() {
+			conn.BeginTx()
+			cmd := dbflex.From(tableName).Insert()
+			obj := new(TestData)
+			obj.ID = "tx1"
+			obj.Title = "tx1"
+			obj.DataDec = 305
+			obj.Created = toolkit.String2Date("01-Apr-1980 00:00:00", "dd-MMM-yyyy HH:mm:ss")
+			if _, err = conn.Execute(cmd, toolkit.M{}.Set("data", obj)); err != nil {
+				cmd = dbflex.From(tableName).Update().Where(dbflex.Eq("ID", "tx1"))
+				_, err = conn.Execute(cmd, toolkit.M{}.Set("data", obj))
+			}
+			cv.So(err, cv.ShouldBeNil)
+
+			cv.Convey("get data", func() {
+				ms := []struct {
+					ID      string
+					Title   string
+					DataDec float64
+					Created time.Time
+				}{}
+				cmd = dbflex.From(tableName).Select().Where(dbflex.Eq("id", "tx1"))
+				err := conn.Cursor(cmd, nil).Fetchs(&ms, 0).Close()
+				cv.So(err, cv.ShouldBeNil)
+				cv.So(len(ms), cv.ShouldEqual, 1)
+				toolkit.Logger().Infof("\nResults:\n%s\n", toolkit.JsonString(ms))
+
+				cv.Convey("rollback", func() {
+					err = conn.RollBack()
+					cv.So(err, cv.ShouldBeNil)
+
+					cv.Convey("validate", func() {
+						cmd = dbflex.From(tableName).Select().Where(dbflex.Eq("id", "tx1"))
+						err := conn.Cursor(cmd, nil).Fetchs(&ms, 0).Close()
+						cv.So(err, cv.ShouldBeNil)
+						cv.So(len(ms), cv.ShouldEqual, 0)
+					})
+				})
+			})
+		})
+	})
+}
+
+func TestCommit(t *testing.T) {
+	cv.Convey("connecting", t, func() {
+		conn, err := connect()
+		cv.So(err, cv.ShouldBeNil)
+		defer conn.Close()
+
+		cv.Convey("save date data", func() {
+			conn.BeginTx()
+			cmd := dbflex.From(tableName).Insert()
+			obj := new(TestData)
+			obj.ID = "tx-commit"
+			obj.Title = "tx-commit"
+			obj.DataDec = 305
+			obj.Created = toolkit.String2Date("01-Apr-1980 00:00:00", "dd-MMM-yyyy HH:mm:ss")
+			if _, err = conn.Execute(cmd, toolkit.M{}.Set("data", obj)); err != nil {
+				cmd = dbflex.From(tableName).Update().Where(dbflex.Eq("ID", "tx-commit"))
+				_, err = conn.Execute(cmd, toolkit.M{}.Set("data", obj))
+			}
+			cv.So(err, cv.ShouldBeNil)
+
+			cv.Convey("get data", func() {
+				ms := []struct {
+					ID      string
+					Title   string
+					DataDec float64
+					Created time.Time
+				}{}
+				cmd = dbflex.From(tableName).Select().Where(dbflex.Eq("id", "tx-commit"))
+				err := conn.Cursor(cmd, nil).Fetchs(&ms, 0).Close()
+				cv.So(err, cv.ShouldBeNil)
+				cv.So(len(ms), cv.ShouldEqual, 1)
+				toolkit.Logger().Infof("\nResults:\n%s\n", toolkit.JsonString(ms))
+
+				cv.Convey("rollback", func() {
+					err = conn.Commit()
+					cv.So(err, cv.ShouldBeNil)
+
+					cv.Convey("validate", func() {
+						cmd = dbflex.From(tableName).Select().Where(dbflex.Eq("id", "tx-commit"))
+						err := conn.Cursor(cmd, nil).Fetchs(&ms, 0).Close()
+						cv.So(err, cv.ShouldBeNil)
+						cv.So(len(ms), cv.ShouldEqual, 1)
+					})
+				})
+			})
+		})
+	})
+}
+
 type TestData struct {
 	ID      string
 	Title   string

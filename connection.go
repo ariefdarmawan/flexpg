@@ -18,6 +18,7 @@ import (
 type Connection struct {
 	rdbms.Connection
 	db *sql.DB
+	tx *sql.Tx
 }
 
 func init() {
@@ -69,13 +70,18 @@ func (c *Connection) Close() {
 func (c *Connection) NewQuery() dbflex.IQuery {
 	q := new(Query)
 	q.SetThis(q)
-	q.db = c.db
+	q.conn = c
 	return q
 }
 
 func (c *Connection) DropTable(name string) error {
 	cmd := "DROP TABLE " + name
-	_, e := c.db.Exec(cmd)
+	var e error
+	if c.IsTx() {
+		_, e = c.tx.Exec(cmd)
+	} else {
+		_, e = c.db.Exec(cmd)
+	}
 	return e
 }
 
@@ -136,9 +142,62 @@ func (c *Connection) EnsureTable(name string, keys []string, obj interface{}) er
 	}
 
 	cmdTxt := fmt.Sprintf(tableCreateCommand, name, strings.Join(fields, ", "))
-	_, e := c.db.Exec(cmdTxt)
+
+	var e error
+	if c.IsTx() {
+		_, e = c.tx.Exec(cmdTxt)
+	} else {
+		_, e = c.db.Exec(cmdTxt)
+	}
+
 	if e != nil {
 		return fmt.Errorf("error: %s command: %s", e.Error(), cmdTxt)
 	}
 	return nil
+}
+
+func (c *Connection) BeginTx() error {
+	if c.IsTx() {
+		return errors.New("already in transaction mode. Please commit or rollback first")
+	}
+	tx, e := c.db.Begin()
+	if e != nil {
+		return e
+	}
+	c.tx = tx
+	return nil
+}
+
+func (c *Connection) Commit() error {
+	if !c.IsTx() {
+		return fmt.Errorf("not is transaction mode")
+	}
+	if e := c.tx.Commit(); e != nil {
+		return e
+	}
+	c.tx = nil
+	return nil
+}
+
+func (c *Connection) RollBack() error {
+	if !c.IsTx() {
+		return fmt.Errorf("not is transaction mode")
+	}
+	if e := c.tx.Rollback(); e != nil {
+		return e
+	}
+	c.tx = nil
+	return nil
+}
+
+func (c *Connection) SupportTx() bool {
+	return true
+}
+
+func (c *Connection) IsTx() bool {
+	return c.tx != nil
+}
+
+func (c *Connection) Tx() *sql.Tx {
+	return c.tx
 }
