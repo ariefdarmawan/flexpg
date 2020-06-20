@@ -51,6 +51,20 @@ func TestMigration(t *testing.T) {
 			cv.Convey("validate ", func() {
 				has := conn.HasTable(tableName)
 				cv.So(has, cv.ShouldBeTrue)
+
+				cv.Convey("migrate update", func() {
+					err = conn.EnsureTable(tableName, []string{"ID"}, new(TestDataNew))
+					cv.So(err, cv.ShouldBeNil)
+
+					cv.Convey("validate update", func() {
+						sql := "select column_name from information_schema.columns where table_name='" + tableName + "'"
+						fields := []toolkit.M{}
+						err = conn.Cursor(dbflex.SQL(sql), nil).Fetchs(&fields, 0).Close()
+						cv.So(err, cv.ShouldBeNil)
+						cv.Printf("\nFields: %s\n", toolkit.JsonString(fields))
+						cv.So(len(fields), cv.ShouldEqual, 6)
+					})
+				})
 			})
 		})
 	})
@@ -254,9 +268,35 @@ func TestCommit(t *testing.T) {
 	})
 }
 
+func TestPopulateSQL(t *testing.T) {
+	cv.Convey("connecting", t, func() {
+		conn, err := connect()
+		cv.So(err, cv.ShouldBeNil)
+		defer conn.Close()
+
+		cv.Convey("reading using sql query", func() {
+			cmd := dbflex.SQL("select * from " + tableName)
+			ms := []toolkit.M{}
+			err = conn.Cursor(cmd, nil).Fetchs(&ms, 0).Close()
+			cv.So(err, cv.ShouldBeNil)
+			cv.So(len(ms), cv.ShouldBeGreaterThan, 0)
+			cv.Printf("\ndata returned: %s\n", toolkit.JsonString(ms[:2]))
+		})
+	})
+}
+
 type TestData struct {
 	ID      string
 	Title   string
 	DataDec float64
+	Created time.Time
+}
+
+type TestDataNew struct {
+	ID      string
+	Title   string
+	Name    string
+	DataDec float64
+	DataInt int
 	Created time.Time
 }

@@ -86,8 +86,35 @@ func (c *Connection) DropTable(name string) error {
 }
 
 func (c *Connection) EnsureTable(name string, keys []string, obj interface{}) error {
-	tableCreateCommand := "CREATE TABLE %s (%s);"
+	var e error
+	cmdTxt := ""
+	if !c.HasTable(name) {
+		if cmdTxt, e = createCommandForCreateTable(name, keys, obj); e != nil {
+			return e
+		}
+	} else {
+		if cmdTxt, e = createCommandForUpdatingTable(c, name, obj); e != nil {
+			return e
+		}
+		if cmdTxt == "" {
+			return nil
+		}
+	}
 
+	if c.IsTx() {
+		_, e = c.tx.Exec(cmdTxt)
+	} else {
+		_, e = c.db.Exec(cmdTxt)
+	}
+
+	if e != nil {
+		return fmt.Errorf("error: %s command: %s", e.Error(), cmdTxt)
+	}
+	return nil
+}
+
+func createCommandForCreateTable(name string, keys []string, obj interface{}) (string, error) {
+	tableCreateCommand := "CREATE TABLE %s (%s);"
 	fields := []string{}
 	v := reflect.ValueOf(obj)
 	if v.Kind() == reflect.Ptr {
@@ -122,7 +149,7 @@ func (c *Connection) EnsureTable(name string, keys []string, obj interface{}) er
 			} else if fieldType == "bool" {
 				fieldType = "boolean"
 			} else {
-				return fmt.Errorf("field %s has unmapped pg data type. %s", fieldName, fieldType)
+				return "", fmt.Errorf("field %s has unmapped pg data type. %s", fieldName, fieldType)
 			}
 			options := []string{}
 			if toolkit.HasMember(keys, originalFieldName) || toolkit.HasMember(keys, fieldName) {
@@ -138,22 +165,98 @@ func (c *Connection) EnsureTable(name string, keys []string, obj interface{}) er
 				"  ", " ", -1))
 		}
 	} else {
-		return errors.New("object should be a struct")
+		return "", errors.New("object should be a struct")
 	}
+	return fmt.Sprintf(tableCreateCommand, name, strings.Join(fields, ", ")), nil
+}
 
-	cmdTxt := fmt.Sprintf(tableCreateCommand, name, strings.Join(fields, ", "))
-
-	var e error
-	if c.IsTx() {
-		_, e = c.tx.Exec(cmdTxt)
-	} else {
-		_, e = c.db.Exec(cmdTxt)
-	}
-
+func createCommandForUpdatingTable(c dbflex.IConnection, name string, obj interface{}) (string, error) {
+	// get fields
+	tableFields := []toolkit.M{}
+	sql := "select column_name,udt_name,is_nullable isnull from information_schema.columns where table_name='" + name + "'"
+	e := c.Cursor(dbflex.SQL(sql), nil).Fetchs(&tableFields, 0).Close()
 	if e != nil {
-		return fmt.Errorf("error: %s command: %s", e.Error(), cmdTxt)
+		return "", errors.New("unable to get table meta. " + e.Error())
 	}
-	return nil
+
+	// convert fields to map to ease comparison
+	mfs := make(map[string]toolkit.M, len(tableFields))
+	for _, f := range tableFields {
+		mfs[strings.ToLower(f.GetString("column_name"))] = f
+	}
+
+	tableUpdateCommand := "ALTER TABLE %s %s;"
+	fields := []string{}
+	v := reflect.ValueOf(obj)
+	if v.Kind() == reflect.Ptr {
+		v = v.Elem()
+	}
+
+	if v.Kind() != reflect.Struct {
+		return "", errors.New("object should be a struct")
+	}
+
+	t := v.Type()
+	fnum := t.NumField()
+	hasChange := false
+	for i := 0; i < fnum; i++ {
+		f := t.Field(i)
+		fieldName := f.Name
+		alias := f.Tag.Get(toolkit.TagName())
+		if alias == "-" {
+			continue
+		}
+		if alias != "" {
+			fieldName = alias
+		}
+		fieldType := f.Type.String()
+
+		// check if field already exist
+		old, exist := mfs[strings.ToLower(fieldName)]
+
+		if fieldType == "string" {
+			fieldType = "text"
+		} else if fieldType != "interface{}" && strings.HasPrefix(fieldType, "int") {
+			fieldType = "integer"
+		} else if strings.Contains(fieldType, "time.Time") {
+			fieldType = "timestamptz"
+		} else if fieldType == "float32" {
+			fieldType = "numeric (32,8)"
+		} else if fieldType == "float64" {
+			fieldType = "numeric (64,8)"
+		} else if fieldType == "bool" {
+			fieldType = "boolean"
+		} else {
+			return "", fmt.Errorf("field %s has unmapped pg data type. %s", fieldName, fieldType)
+		}
+
+		if exist {
+			if fieldType != strings.ToLower(old.GetString("udt_name")) {
+				hasChange = true
+				fields = append(fields, fmt.Sprintf("alter %s type %s", strings.ToLower(fieldName), fieldType))
+			}
+		} else {
+			hasChange = true
+			notnull := "NOT NULL DEFAULT "
+			switch fieldType {
+			case "text":
+				notnull += "''"
+			case "integer", "numeric (32,8)", "numeric (64,8)":
+				notnull += "0"
+			case "boolean":
+				notnull += " 'F'"
+			case "timestamptz":
+				notnull += "'1900-01-01 00:00:00'"
+			}
+			fields = append(fields, fmt.Sprintf("add %s %s %s", strings.ToLower(fieldName), fieldType, notnull))
+		}
+	}
+
+	if !hasChange {
+		return "", nil
+	}
+
+	return fmt.Sprintf(tableUpdateCommand, name, strings.Join(fields, ",\n")), nil
 }
 
 func (c *Connection) BeginTx() error {
