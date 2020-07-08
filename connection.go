@@ -102,8 +102,10 @@ func (c *Connection) EnsureTable(name string, keys []string, obj interface{}) er
 	}
 
 	if c.IsTx() {
+		dbflex.Logger().Debugf("SQL Command: %v", cmdTxt)
 		_, e = c.tx.Exec(cmdTxt)
 	} else {
+		dbflex.Logger().Debugf("SQL Command: %v", cmdTxt)
 		_, e = c.db.Exec(cmdTxt)
 	}
 
@@ -113,9 +115,16 @@ func (c *Connection) EnsureTable(name string, keys []string, obj interface{}) er
 	return nil
 }
 
-func createCommandForCreateTable(name string, keys []string, obj interface{}) (string, error) {
+func createCommandForCreateTable(name string, keys []string, someobj interface{}) (string, error) {
 	tableCreateCommand := "CREATE TABLE %s (%s);"
 	fields := []string{}
+	if e := toFieldForCreateTable(someobj, &keys, &fields); e != nil {
+		return "", e
+	}
+	return fmt.Sprintf(tableCreateCommand, name, strings.Join(fields, ", ")), nil
+}
+
+func toFieldForCreateTable(obj interface{}, keys *[]string, fields *[]string) error {
 	v := reflect.ValueOf(obj)
 	if v.Kind() == reflect.Ptr {
 		v = v.Elem()
@@ -127,6 +136,11 @@ func createCommandForCreateTable(name string, keys []string, obj interface{}) (s
 			f := t.Field(i)
 			tag := f.Tag
 			fieldName := f.Name
+			fieldTypeName := f.Type.String()
+			fieldType := f.Type.Kind()
+			if fieldType == reflect.Ptr {
+				fieldType = f.Type.Elem().Kind()
+			}
 			alias := f.Tag.Get(toolkit.TagName())
 			originalFieldName := fieldName
 			if alias == "-" {
@@ -135,42 +149,45 @@ func createCommandForCreateTable(name string, keys []string, obj interface{}) (s
 			if alias != "" {
 				fieldName = alias
 			}
-			fieldType := f.Type.String()
-			if fieldType == "string" {
-				fieldType = "text"
-			} else if fieldType != "interface{}" && strings.HasPrefix(fieldType, "int") {
-				fieldType = "integer"
-			} else if strings.Contains(fieldType, "time.Time") {
-				fieldType = "timestamptz"
-			} else if fieldType == "float32" {
-				fieldType = "numeric (32,8)"
-			} else if fieldType == "float64" {
-				fieldType = "numeric (64,8)"
-			} else if fieldType == "bool" {
-				fieldType = "boolean"
-			} else {
-				return "", fmt.Errorf("field %s has unmapped pg data type. %s", fieldName, fieldType)
+			dbType := Mapper.MigrationDBType(f)
+			if dbType == "" {
+				if fieldType != reflect.Struct {
+					return fmt.Errorf("field %s has unmapped pg data type. %s", fieldName, fieldTypeName)
+				}
+				nf := v.Field(i).Interface()
+				if e := toFieldForCreateTable(nf, keys, fields); e != nil {
+					return e
+				}
+				continue
 			}
 			options := []string{}
 			if toolkit.HasMember(keys, originalFieldName) || toolkit.HasMember(keys, fieldName) {
 				options = append(options, "PRIMARY KEY")
 			}
 			if _, ok := tag.Lookup("required"); ok {
-				options = append(options, "NOT NULL")
+				notnull := "NOT NULL"
+				if defValue, found := Mapper.MigrationDBTypeDefaultNotNull(f, dbType); found {
+					notnull += " DEFAULT " + defValue
+				}
+				options = append(options, notnull)
+			} else {
+				if defValue, found := Mapper.MigrationDBTypeDefaultNotNull(f, dbType); found {
+					options = append(options, " DEFAULT "+defValue)
+				}
 			}
-			fields = append(fields, strings.Replace(fmt.Sprintf("%s %s %s",
+			*fields = append(*fields, strings.Replace(fmt.Sprintf("%s %s %s",
 				strings.ToLower(fieldName),
-				fieldType,
+				dbType,
 				strings.Join(options, " ")),
 				"  ", " ", -1))
 		}
 	} else {
-		return "", errors.New("object should be a struct")
+		return errors.New("object should be a struct")
 	}
-	return fmt.Sprintf(tableCreateCommand, name, strings.Join(fields, ", ")), nil
+	return nil
 }
 
-func createCommandForUpdatingTable(c dbflex.IConnection, name string, obj interface{}) (string, error) {
+func createCommandForUpdatingTable(c dbflex.IConnection, name string, someobj interface{}) (string, error) {
 	// get fields
 	tableFields := []toolkit.M{}
 	sql := "select column_name,udt_name,is_nullable isnull from information_schema.columns where table_name='" + name + "'"
@@ -186,70 +203,11 @@ func createCommandForUpdatingTable(c dbflex.IConnection, name string, obj interf
 	}
 
 	tableUpdateCommand := "ALTER TABLE %s %s;"
-	fields := []string{}
-	v := reflect.ValueOf(obj)
-	if v.Kind() == reflect.Ptr {
-		v = v.Elem()
-	}
-
-	if v.Kind() != reflect.Struct {
-		return "", errors.New("object should be a struct")
-	}
-
-	t := v.Type()
-	fnum := t.NumField()
 	hasChange := false
-	for i := 0; i < fnum; i++ {
-		f := t.Field(i)
-		fieldName := f.Name
-		alias := f.Tag.Get(toolkit.TagName())
-		if alias == "-" {
-			continue
-		}
-		if alias != "" {
-			fieldName = alias
-		}
-		fieldType := f.Type.String()
+	fields := []string{}
 
-		// check if field already exist
-		old, exist := mfs[strings.ToLower(fieldName)]
-
-		if fieldType == "string" {
-			fieldType = "text"
-		} else if fieldType != "interface{}" && strings.HasPrefix(fieldType, "int") {
-			fieldType = "integer"
-		} else if strings.Contains(fieldType, "time.Time") {
-			fieldType = "timestamptz"
-		} else if fieldType == "float32" {
-			fieldType = "numeric (32,8)"
-		} else if fieldType == "float64" {
-			fieldType = "numeric (64,8)"
-		} else if fieldType == "bool" {
-			fieldType = "boolean"
-		} else {
-			return "", fmt.Errorf("field %s has unmapped pg data type. %s", fieldName, fieldType)
-		}
-
-		if exist {
-			if fieldType != strings.ToLower(old.GetString("udt_name")) {
-				hasChange = true
-				fields = append(fields, fmt.Sprintf("alter %s type %s", strings.ToLower(fieldName), fieldType))
-			}
-		} else {
-			hasChange = true
-			notnull := "NOT NULL DEFAULT "
-			switch fieldType {
-			case "text":
-				notnull += "''"
-			case "integer", "numeric (32,8)", "numeric (64,8)":
-				notnull += "0"
-			case "boolean":
-				notnull += " 'F'"
-			case "timestamptz":
-				notnull += "'1900-01-01 00:00:00'"
-			}
-			fields = append(fields, fmt.Sprintf("add %s %s %s", strings.ToLower(fieldName), fieldType, notnull))
-		}
+	if e := toFieldForUpdatingTable(someobj, mfs, &hasChange, &fields); e != nil {
+		return "", e
 	}
 
 	if !hasChange {
@@ -257,6 +215,72 @@ func createCommandForUpdatingTable(c dbflex.IConnection, name string, obj interf
 	}
 
 	return fmt.Sprintf(tableUpdateCommand, name, strings.Join(fields, ",\n")), nil
+}
+
+func toFieldForUpdatingTable(obj interface{}, mfs map[string]toolkit.M, hasChange *bool, fields *[]string) error {
+	v := reflect.ValueOf(obj)
+	if v.Kind() == reflect.Ptr {
+		v = v.Elem()
+	}
+
+	if v.Kind() != reflect.Struct {
+		return errors.New("object should be a struct")
+	}
+
+	t := v.Type()
+	fnum := t.NumField()
+	for i := 0; i < fnum; i++ {
+		f := t.Field(i)
+		fieldName := f.Name
+		fieldTypeName := f.Type.String()
+		fieldType := f.Type.Kind()
+		alias := f.Tag.Get(toolkit.TagName())
+		if alias == "-" {
+			continue
+		}
+		if alias != "" {
+			fieldName = alias
+		}
+
+		// check if field already exist
+		old, exist := mfs[strings.ToLower(fieldName)]
+
+		dbType := Mapper.MigrationDBType(f)
+		if dbType == "" {
+			if fieldType != reflect.Struct { // maybe nested
+				return fmt.Errorf("field %s has unmapped pg data type. %s", fieldName, fieldTypeName)
+			}
+			nf := v.Field(i).Interface()
+			if e := toFieldForUpdatingTable(nf, mfs, hasChange, fields); e != nil {
+				return e
+			}
+			continue
+		}
+
+		if exist {
+			// Checking old datatype != new datatype with some alias (because some datatype can be compare as same)
+			if dbType != strings.ToLower(old.GetString("udt_name")) {
+				*hasChange = true
+				*fields = append(*fields, fmt.Sprintf("alter %s type %s", strings.ToLower(fieldName), dbType))
+			}
+		} else {
+			*hasChange = true
+			options := []string{}
+			if _, ok := f.Tag.Lookup("required"); ok {
+				notnull := "NOT NULL"
+				if defValue, found := Mapper.MigrationDBTypeDefaultNotNull(f, dbType); found {
+					notnull += " DEFAULT " + defValue
+				}
+				options = append(options, notnull)
+			} else {
+				if defValue, found := Mapper.MigrationDBTypeDefaultNotNull(f, dbType); found {
+					options = append(options, " DEFAULT "+defValue)
+				}
+			}
+			*fields = append(*fields, fmt.Sprintf("add %s %s %s", strings.ToLower(fieldName), dbType, strings.Join(options, " ")))
+		}
+	}
+	return nil
 }
 
 func (c *Connection) BeginTx() error {
