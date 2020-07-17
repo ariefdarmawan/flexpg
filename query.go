@@ -118,6 +118,7 @@ func (q *Query) Execute(in toolkit.M) (interface{}, error) {
 	}
 
 	//fmt.Println("Cmd: ", cmdtxt)
+	dbflex.Logger().Debugf("SQL Command: %v", cmdtxt)
 	var (
 		r   sql.Result
 		err error

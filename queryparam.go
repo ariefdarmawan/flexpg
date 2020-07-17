@@ -4,15 +4,15 @@ import (
 	"git.kanosolution.net/kano/dbflex"
 )
 
-type JoinTable struct {
-	Table string
-	On    *dbflex.Filter
-}
+// type JoinTable struct {
+// 	Table string
+// 	On    *dbflex.Filter
+// }
 
 // QueryParam extend from dbflex.QueryParam, adding helper wrap and query
 type QueryParam struct {
 	dbflex.QueryParam
-	Joins []JoinTable
+	// Joins []JoinTable
 }
 
 // NewQueryParam create new QueryParam
@@ -20,13 +20,13 @@ func NewQueryParam() *QueryParam {
 	return new(QueryParam)
 }
 
-func (qp *QueryParam) Join(j JoinTable) *QueryParam {
-	if len(qp.Joins) == 0 {
-		qp.Joins = []JoinTable{}
-	}
-	qp.Joins = append(qp.Joins, j)
-	return qp
-}
+// func (qp *QueryParam) Join(j JoinTable) *QueryParam {
+// 	if len(qp.Joins) == 0 {
+// 		qp.Joins = []JoinTable{}
+// 	}
+// 	qp.Joins = append(qp.Joins, j)
+// 	return qp
+// }
 
 func (qp *QueryParam) ToSelectFields() string {
 	q := Query{}

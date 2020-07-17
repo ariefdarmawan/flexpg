@@ -141,7 +141,7 @@ func toFieldForCreateTable(obj interface{}, keys *[]string, fields *[]string) er
 			if fieldType == reflect.Ptr {
 				fieldType = f.Type.Elem().Kind()
 			}
-			alias := f.Tag.Get(toolkit.TagName())
+			alias := strings.Split(f.Tag.Get(toolkit.TagName()), ",")[0]
 			originalFieldName := fieldName
 			if alias == "-" {
 				continue
@@ -234,7 +234,7 @@ func toFieldForUpdatingTable(obj interface{}, mfs map[string]toolkit.M, hasChang
 		fieldName := f.Name
 		fieldTypeName := f.Type.String()
 		fieldType := f.Type.Kind()
-		alias := f.Tag.Get(toolkit.TagName())
+		alias := strings.Split(f.Tag.Get(toolkit.TagName()), ",")[0]
 		if alias == "-" {
 			continue
 		}
