@@ -135,22 +135,15 @@ func createCommandForCreateTable(name string, keys []string, obj interface{}) (s
 			if alias != "" {
 				fieldName = alias
 			}
+
+			fieldKind := f.Type.Kind().String()
 			fieldType := f.Type.String()
-			if fieldType == "string" {
-				fieldType = "text"
-			} else if fieldType != "interface{}" && strings.HasPrefix(fieldType, "int") {
-				fieldType = "integer"
-			} else if strings.Contains(fieldType, "time.Time") {
-				fieldType = "timestamptz"
-			} else if fieldType == "float32" {
-				fieldType = "numeric (32,8)"
-			} else if fieldType == "float64" {
-				fieldType = "numeric (64,8)"
-			} else if fieldType == "bool" {
-				fieldType = "boolean"
-			} else {
+
+			fieldType, err := fieldTypeMapper(fieldType, fieldKind)
+			if err != nil {
 				return "", fmt.Errorf("field %s has unmapped pg data type. %s", fieldName, fieldType)
 			}
+
 			options := []string{}
 			if toolkit.HasMember(keys, originalFieldName) || toolkit.HasMember(keys, fieldName) {
 				options = append(options, "PRIMARY KEY")
@@ -210,23 +203,14 @@ func createCommandForUpdatingTable(c dbflex.IConnection, name string, obj interf
 			fieldName = alias
 		}
 		fieldType := f.Type.String()
+		fieldKind := f.Type.Kind().String()
 
 		// check if field already exist
 		old, exist := mfs[strings.ToLower(fieldName)]
 
-		if fieldType == "string" {
-			fieldType = "text"
-		} else if fieldType != "interface{}" && strings.HasPrefix(fieldType, "int") {
-			fieldType = "integer"
-		} else if strings.Contains(fieldType, "time.Time") {
-			fieldType = "timestamptz"
-		} else if fieldType == "float32" {
-			fieldType = "numeric (32,8)"
-		} else if fieldType == "float64" {
-			fieldType = "numeric (64,8)"
-		} else if fieldType == "bool" {
-			fieldType = "boolean"
-		} else {
+		// map field type
+		fieldType, err := fieldTypeMapper(fieldType, fieldKind)
+		if err != nil {
 			return "", fmt.Errorf("field %s has unmapped pg data type. %s", fieldName, fieldType)
 		}
 
@@ -241,7 +225,7 @@ func createCommandForUpdatingTable(c dbflex.IConnection, name string, obj interf
 			switch fieldType {
 			case "text":
 				notnull += "''"
-			case "integer", "numeric (32,8)", "numeric (64,8)":
+			case "bigint", "integer", "numeric (32,8)", "numeric (64,8)":
 				notnull += "0"
 			case "boolean":
 				notnull += " 'F'"
@@ -257,6 +241,30 @@ func createCommandForUpdatingTable(c dbflex.IConnection, name string, obj interf
 	}
 
 	return fmt.Sprintf(tableUpdateCommand, name, strings.Join(fields, ",\n")), nil
+}
+
+func fieldTypeMapper(fieldType, fieldKind string) (string, error) {
+	if fieldType == "string" || strings.HasPrefix(fieldKind, "string") {
+		fieldType = "text"
+	} else if fieldType != "interface{}" && (strings.HasPrefix(fieldType, "int64") || strings.HasPrefix(fieldKind, "int64")) {
+		fieldType = "bigint"
+	} else if fieldType != "interface{}" && (strings.HasPrefix(fieldType, "int") || strings.HasPrefix(fieldKind, "int")) {
+		fieldType = "integer"
+	} else if strings.Contains(fieldType, "time.Time") {
+		fieldType = "timestamptz"
+	} else if fieldType == "float32" {
+		fieldType = "numeric (32,8)"
+	} else if fieldType == "float64" {
+		fieldType = "numeric (64,8)"
+	} else if fieldType == "bool" {
+		fieldType = "boolean"
+	} else if toolkit.HasMember([]string{"slice", "map", "struct"}, fieldKind) {
+		fieldType = "jsonb"
+	} else {
+		return "", fmt.Errorf("unmapped pg data type %s (%s)", fieldType, fieldKind)
+	}
+	return fieldType, nil
+
 }
 
 func (c *Connection) BeginTx() error {

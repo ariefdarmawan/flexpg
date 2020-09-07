@@ -62,7 +62,7 @@ func TestMigration(t *testing.T) {
 						err = conn.Cursor(dbflex.SQL(sql), nil).Fetchs(&fields, 0).Close()
 						cv.So(err, cv.ShouldBeNil)
 						cv.Printf("\nFields: %s\n", toolkit.JsonString(fields))
-						cv.So(len(fields), cv.ShouldEqual, 6)
+						cv.So(len(fields), cv.ShouldEqual, 15)
 					})
 				})
 			})
@@ -81,6 +81,18 @@ func TestQueryM(t *testing.T) {
 				Set("id", "TestData1").
 				Set("title", "Title aja lah").
 				Set("datadec", 80.32).
+				Set("category", Inbound).
+				Set("status", Received).
+				Set("tags", []string{"a", "b", "c", "d"}).
+				Set("sequences", []int64{9, 11, 13, 15, 17}).
+				Set("datainterfaces", []interface{}{"hola", 1, 2, "como", "estas", 3}).
+				Set("dataint64", 9000).
+				Set("meta", TestObject{
+					ID:          "Test",
+					CreatedDate: time.Now(),
+					Name:        "metadata",
+					Tags:        []string{"z", "y", "x", "w"},
+				}).
 				Set("created", time.Now())
 
 			cmd := dbflex.From(tableName).Insert()
@@ -285,11 +297,44 @@ func TestPopulateSQL(t *testing.T) {
 	})
 }
 
+type Status int64
+
+const (
+	Pending Status = iota
+	Received
+	Cancelled
+	Rejected
+)
+
+type Category string
+
+const (
+	Inbound  Category = "inbound"
+	Outbound Category = "outbound"
+)
+
 type TestData struct {
-	ID      string
-	Title   string
-	DataDec float64
-	Created time.Time
+	ID             string
+	Title          string
+	Status         Status
+	Category       Category
+	Tags           []string
+	Sequences      []int64
+	DataDec        float64
+	DataInt        int
+	DataInt64      int64
+	DataInterfaces []interface{}
+	Meta           TestObject
+	Metas          []TestObject
+	Created        time.Time
+	Updated        time.Time
+}
+
+type TestObject struct {
+	ID          string
+	Name        string
+	Tags        []string
+	CreatedDate time.Time
 }
 
 type TestDataNew struct {
