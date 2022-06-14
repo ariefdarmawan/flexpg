@@ -172,6 +172,7 @@ func createCommandForCreateTable(name string, keys []string, obj interface{}) (s
 
 func createCommandForUpdatingTable(c dbflex.IConnection, name string, obj interface{}) (string, error) {
 	// get fields
+	name = strings.ToLower(name)
 	tableFields := []toolkit.M{}
 	sql := "select column_name,udt_name,is_nullable isnull from information_schema.columns where table_name='" + name + "'"
 	e := c.Cursor(dbflex.SQL(sql), nil).Fetchs(&tableFields, 0).Close()
