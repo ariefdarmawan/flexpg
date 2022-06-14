@@ -103,7 +103,7 @@ func (q *Query) Execute(in toolkit.M) (interface{}, error) {
 	case dbflex.QueryInsert:
 		cmdtxt = strings.Replace(cmdtxt, "{{.FIELDS}}", strings.Join(sqlfieldnames, ","), -1)
 		cmdtxt = strings.Replace(cmdtxt, "{{.VALUES}}", strings.Join(sqlvalues, ","), -1)
-		toolkit.Printfn("\nCmd: %s", cmdtxt)
+		//toolkit.Printfn("\nCmd: %s", cmdtxt)
 
 	case dbflex.QueryUpdate:
 		//fmt.Println("fieldnames:", sqlfieldnames)

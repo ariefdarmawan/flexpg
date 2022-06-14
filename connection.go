@@ -179,7 +179,7 @@ func createCommandForUpdatingTable(c dbflex.IConnection, name string, obj interf
 	if e != nil {
 		return "", errors.New("unable to get table meta. " + e.Error())
 	}
-	fmt.Println(tableFields)
+	//fmt.Println(tableFields)
 
 	// convert fields to map to ease comparison
 	mfs := make(map[string]toolkit.M, len(tableFields))
