@@ -2,7 +2,9 @@ package flexpg
 
 import (
 	"database/sql"
+	"fmt"
 	"strings"
+	"time"
 
 	"git.kanosolution.net/kano/dbflex"
 	"git.kanosolution.net/kano/dbflex/drivers/rdbms"
@@ -101,7 +103,7 @@ func (q *Query) Execute(in toolkit.M) (interface{}, error) {
 	case dbflex.QueryInsert:
 		cmdtxt = strings.Replace(cmdtxt, "{{.FIELDS}}", strings.Join(sqlfieldnames, ","), -1)
 		cmdtxt = strings.Replace(cmdtxt, "{{.VALUES}}", strings.Join(sqlvalues, ","), -1)
-		//toolkit.Printfn("\nCmd: %s", cmdtxt)
+		toolkit.Printfn("\nCmd: %s", cmdtxt)
 
 	case dbflex.QueryUpdate:
 		//fmt.Println("fieldnames:", sqlfieldnames)
@@ -143,3 +145,37 @@ func (q *Query) SQL(string cmd, exec) dbflex.IQuery {
 	swicth()
 }
 */
+
+func CleanupSQL(s string) string {
+	return strings.Replace(s, "'", "''", -1)
+}
+
+func tsValue(dt time.Time) string {
+	if dt.IsZero() {
+		return toolkit.Date2String(dt.Local(), "'yyyy-MM-dd HH:mm:ss T'")
+	}
+	return toolkit.Date2String(dt, "'yyyy-MM-dd HH:mm:ss T'")
+}
+
+func (qr *Query) ValueToSQlValue(v interface{}) string {
+	switch v.(type) {
+	case int, int8, int16, int32, int64:
+		return toolkit.Sprintf("%d", v)
+	case float32, float64:
+		return toolkit.Sprintf("%f", v)
+	case time.Time:
+		return tsValue(v.(time.Time))
+	case *time.Time:
+		dt := v.(*time.Time)
+		return tsValue(*dt)
+	case bool:
+		if v.(bool) == true {
+			return "true"
+		}
+		return "false"
+	case string:
+		return toolkit.Sprintf("'%s'", CleanupSQL(v.(string)))
+	default:
+		return toolkit.Sprintf("'%s'", CleanupSQL(fmt.Sprintf("%v", toolkit.JsonString(v))))
+	}
+}

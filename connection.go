@@ -179,6 +179,7 @@ func createCommandForUpdatingTable(c dbflex.IConnection, name string, obj interf
 	if e != nil {
 		return "", errors.New("unable to get table meta. " + e.Error())
 	}
+	fmt.Println(tableFields)
 
 	// convert fields to map to ease comparison
 	mfs := make(map[string]toolkit.M, len(tableFields))
@@ -247,7 +248,7 @@ func createCommandForUpdatingTable(c dbflex.IConnection, name string, obj interf
 			case "boolean":
 				notnull += " 'F'"
 			case "timestamptz":
-				notnull += "'1900-01-01 00:00:00'"
+				notnull += "to_timestamp(0)"
 			}
 			fields = append(fields, fmt.Sprintf("add %s %s %s", strings.ToLower(fieldName), fieldType, notnull))
 		}
