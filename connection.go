@@ -8,10 +8,10 @@ import (
 	"strings"
 
 	"git.kanosolution.net/kano/dbflex"
-	"github.com/eaciit/toolkit"
 
 	"git.kanosolution.net/kano/dbflex/drivers/rdbms"
 	_ "github.com/lib/pq"
+	"github.com/sebarcode/codekit"
 )
 
 // Connection implementation of dbflex.IConnection
@@ -32,15 +32,15 @@ func init() {
 
 // Connect to database instance
 func (c *Connection) Connect() error {
-	sqlconnstring := toolkit.Sprintf("%s/%s", c.Host, c.Database)
+	sqlconnstring := fmt.Sprintf("%s/%s", c.Host, c.Database)
 	if c.User != "" {
-		sqlconnstring = toolkit.Sprintf("%s:%s@%s", c.User, c.Password, sqlconnstring)
+		sqlconnstring = fmt.Sprintf("%s:%s@%s", c.User, c.Password, sqlconnstring)
 	}
 	sqlconnstring = "postgres://" + sqlconnstring
 	configs := strings.Join(func() []string {
 		var out []string
 		for k, v := range c.Config {
-			out = append(out, toolkit.Sprintf("%s=%s", k, v))
+			out = append(out, fmt.Sprintf("%s=%s", k, v))
 		}
 		return out
 	}(), "&")
@@ -127,7 +127,7 @@ func createCommandForCreateTable(name string, keys []string, obj interface{}) (s
 			f := t.Field(i)
 			tag := f.Tag
 			fieldName := f.Name
-			alias := f.Tag.Get(toolkit.TagName())
+			alias := f.Tag.Get(codekit.TagName())
 			originalFieldName := fieldName
 			if alias == "-" {
 				continue
@@ -152,7 +152,7 @@ func createCommandForCreateTable(name string, keys []string, obj interface{}) (s
 				return "", fmt.Errorf("field %s has unmapped pg data type. %s", fieldName, fieldType)
 			}
 			options := []string{}
-			if toolkit.HasMember(keys, originalFieldName) || toolkit.HasMember(keys, fieldName) {
+			if codekit.HasMember(keys, originalFieldName) || codekit.HasMember(keys, fieldName) {
 				options = append(options, "PRIMARY KEY")
 			}
 			if _, ok := tag.Lookup("required"); ok {
@@ -173,7 +173,7 @@ func createCommandForCreateTable(name string, keys []string, obj interface{}) (s
 func createCommandForUpdatingTable(c dbflex.IConnection, name string, obj interface{}) (string, error) {
 	// get fields
 	name = strings.ToLower(name)
-	tableFields := []toolkit.M{}
+	tableFields := []codekit.M{}
 	sql := "select column_name,udt_name,is_nullable isnull from information_schema.columns where table_name='" + name + "'"
 	e := c.Cursor(dbflex.SQL(sql), nil).Fetchs(&tableFields, 0).Close()
 	if e != nil {
@@ -182,7 +182,7 @@ func createCommandForUpdatingTable(c dbflex.IConnection, name string, obj interf
 	//fmt.Println(tableFields)
 
 	// convert fields to map to ease comparison
-	mfs := make(map[string]toolkit.M, len(tableFields))
+	mfs := make(map[string]codekit.M, len(tableFields))
 	for _, f := range tableFields {
 		mfs[strings.ToLower(f.GetString("column_name"))] = f
 	}
@@ -204,7 +204,7 @@ func createCommandForUpdatingTable(c dbflex.IConnection, name string, obj interf
 	for i := 0; i < fnum; i++ {
 		f := t.Field(i)
 		fieldName := f.Name
-		alias := f.Tag.Get(toolkit.TagName())
+		alias := f.Tag.Get(codekit.TagName())
 		if alias == "-" {
 			continue
 		}

@@ -12,7 +12,7 @@ type Cursor struct {
 	rdbms.Cursor
 }
 
-func (c *Cursor) CastValue(value interface{}, typeName string) (interface{}, error) {
+func (c *Cursor) castValue(value interface{}, typeName string) (interface{}, error) {
 	var d interface{}
 	var err error
 

@@ -6,7 +6,8 @@ import (
 	"time"
 
 	"git.kanosolution.net/kano/dbflex"
-	"github.com/eaciit/toolkit"
+	"github.com/sebarcode/codekit"
+	"github.com/sebarcode/logger"
 	"github.com/smartystreets/goconvey/convey"
 	cv "github.com/smartystreets/goconvey/convey"
 )
@@ -17,10 +18,10 @@ var (
 )
 
 func connect() (dbflex.IConnection, error) {
-	dbflex.Logger().SetLevelStdOut(toolkit.ErrorLevel, true)
-	dbflex.Logger().SetLevelStdOut(toolkit.InfoLevel, true)
-	dbflex.Logger().SetLevelStdOut(toolkit.WarningLevel, true)
-	dbflex.Logger().SetLevelStdOut(toolkit.DebugLevel, true)
+	dbflex.Logger().SetLevelStdOut(logger.ErrorLevel, true)
+	dbflex.Logger().SetLevelStdOut(logger.InfoLevel, true)
+	dbflex.Logger().SetLevelStdOut(logger.WarningLevel, true)
+	dbflex.Logger().SetLevelStdOut(logger.DebugLevel, true)
 
 	conn, err := dbflex.NewConnectionFromURI(connString, nil)
 	if err != nil {
@@ -58,10 +59,10 @@ func TestMigration(t *testing.T) {
 
 					cv.Convey("validate update", func() {
 						sql := "select column_name from information_schema.columns where table_name='" + tableName + "'"
-						fields := []toolkit.M{}
+						fields := []codekit.M{}
 						err = conn.Cursor(dbflex.SQL(sql), nil).Fetchs(&fields, 0).Close()
 						cv.So(err, cv.ShouldBeNil)
-						cv.Printf("\nFields: %s\n", toolkit.JsonString(fields))
+						cv.Printf("\nFields: %s\n", codekit.JsonString(fields))
 						cv.So(len(fields), cv.ShouldEqual, 6)
 					})
 				})
@@ -77,14 +78,14 @@ func TestQueryM(t *testing.T) {
 		defer conn.Close()
 
 		convey.Convey("insert", func() {
-			data := toolkit.M{}.
+			data := codekit.M{}.
 				Set("id", "TestData1").
 				Set("title", "Title aja lah").
 				Set("datadec", 80.32).
 				Set("created", time.Now())
 
 			cmd := dbflex.From(tableName).Insert()
-			_, e := conn.Execute(cmd, toolkit.M{}.Set("data", data))
+			_, e := conn.Execute(cmd, codekit.M{}.Set("data", data))
 			cv.So(e, convey.ShouldBeNil)
 
 			cv.Convey("querying", func() {
@@ -93,12 +94,12 @@ func TestQueryM(t *testing.T) {
 				cv.So(cur.Error(), cv.ShouldBeNil)
 
 				cv.Convey("get results", func() {
-					ms := []toolkit.M{}
+					ms := []codekit.M{}
 					err := cur.Fetchs(&ms, 0).Close()
 					cv.So(err, cv.ShouldBeNil)
 					cv.So(len(ms), cv.ShouldBeGreaterThan, 0)
 
-					toolkit.Logger().Infof("\nResults:\n%s\n", toolkit.JsonString(ms))
+					logger.Logger().Infof("\nResults:\n%s\n", codekit.JsonString(ms))
 				})
 			})
 		})
@@ -127,7 +128,7 @@ func TestQueryObj(t *testing.T) {
 				err := cur.Fetchs(&ms, 0).Close()
 				cv.So(err, cv.ShouldBeNil)
 
-				toolkit.Logger().Infof("\nResults:\n%s\n", toolkit.JsonString(ms))
+				logger.Logger().Infof("\nResults:\n%s\n", codekit.JsonString(ms))
 			})
 		})
 	})
@@ -145,10 +146,10 @@ func TestDate(t *testing.T) {
 			obj.ID = "date1"
 			obj.Title = "Date 1"
 			obj.DataDec = 305
-			obj.Created = toolkit.String2Date("01-Apr-1980 00:00:00", "dd-MMM-yyyy HH:mm:ss")
-			if _, err = conn.Execute(cmd, toolkit.M{}.Set("data", obj)); err != nil {
+			obj.Created = codekit.String2Date("01-Apr-1980 00:00:00", "dd-MMM-yyyy HH:mm:ss")
+			if _, err = conn.Execute(cmd, codekit.M{}.Set("data", obj)); err != nil {
 				cmd = dbflex.From(tableName).Update().Where(dbflex.Eq("ID", "date1"))
-				_, err = conn.Execute(cmd, toolkit.M{}.Set("data", obj))
+				_, err = conn.Execute(cmd, codekit.M{}.Set("data", obj))
 			}
 			cv.So(err, cv.ShouldBeNil)
 
@@ -159,12 +160,12 @@ func TestDate(t *testing.T) {
 					DataDec float64
 					Created time.Time
 				}{}
-				cmd = dbflex.From(tableName).Select().Where(dbflex.Eq("created", toolkit.String2Date("01-Apr-1980", "dd-MMM-yyyy")))
+				cmd = dbflex.From(tableName).Select().Where(dbflex.Eq("created", codekit.String2Date("01-Apr-1980", "dd-MMM-yyyy")))
 				err := conn.Cursor(cmd, nil).Fetchs(&ms, 0).Close()
 				cv.So(err, cv.ShouldBeNil)
 				cv.So(len(ms), cv.ShouldBeGreaterThan, 0)
 
-				toolkit.Logger().Infof("\nResults:\n%s\n", toolkit.JsonString(ms))
+				logger.Logger().Infof("\nResults:\n%s\n", codekit.JsonString(ms))
 			})
 		})
 	})
@@ -183,10 +184,10 @@ func TestRollback(t *testing.T) {
 			obj.ID = "tx1"
 			obj.Title = "tx1"
 			obj.DataDec = 305
-			obj.Created = toolkit.String2Date("01-Apr-1980 00:00:00", "dd-MMM-yyyy HH:mm:ss")
-			if _, err = conn.Execute(cmd, toolkit.M{}.Set("data", obj)); err != nil {
+			obj.Created = codekit.String2Date("01-Apr-1980 00:00:00", "dd-MMM-yyyy HH:mm:ss")
+			if _, err = conn.Execute(cmd, codekit.M{}.Set("data", obj)); err != nil {
 				cmd = dbflex.From(tableName).Update().Where(dbflex.Eq("ID", "tx1"))
-				_, err = conn.Execute(cmd, toolkit.M{}.Set("data", obj))
+				_, err = conn.Execute(cmd, codekit.M{}.Set("data", obj))
 			}
 			cv.So(err, cv.ShouldBeNil)
 
@@ -201,7 +202,7 @@ func TestRollback(t *testing.T) {
 				err := conn.Cursor(cmd, nil).Fetchs(&ms, 0).Close()
 				cv.So(err, cv.ShouldBeNil)
 				cv.So(len(ms), cv.ShouldEqual, 1)
-				toolkit.Logger().Infof("\nResults:\n%s\n", toolkit.JsonString(ms))
+				logger.Logger().Infof("\nResults:\n%s\n", codekit.JsonString(ms))
 
 				cv.Convey("rollback", func() {
 					err = conn.RollBack()
@@ -232,10 +233,10 @@ func TestCommit(t *testing.T) {
 			obj.ID = "tx-commit"
 			obj.Title = "tx-commit"
 			obj.DataDec = 305
-			obj.Created = toolkit.String2Date("01-Apr-1980 00:00:00", "dd-MMM-yyyy HH:mm:ss")
-			if _, err = conn.Execute(cmd, toolkit.M{}.Set("data", obj)); err != nil {
+			obj.Created = codekit.String2Date("01-Apr-1980 00:00:00", "dd-MMM-yyyy HH:mm:ss")
+			if _, err = conn.Execute(cmd, codekit.M{}.Set("data", obj)); err != nil {
 				cmd = dbflex.From(tableName).Update().Where(dbflex.Eq("ID", "tx-commit"))
-				_, err = conn.Execute(cmd, toolkit.M{}.Set("data", obj))
+				_, err = conn.Execute(cmd, codekit.M{}.Set("data", obj))
 			}
 			cv.So(err, cv.ShouldBeNil)
 
@@ -250,7 +251,7 @@ func TestCommit(t *testing.T) {
 				err := conn.Cursor(cmd, nil).Fetchs(&ms, 0).Close()
 				cv.So(err, cv.ShouldBeNil)
 				cv.So(len(ms), cv.ShouldEqual, 1)
-				toolkit.Logger().Infof("\nResults:\n%s\n", toolkit.JsonString(ms))
+				logger.Logger().Infof("\nResults:\n%s\n", codekit.JsonString(ms))
 
 				cv.Convey("rollback", func() {
 					err = conn.Commit()
@@ -276,11 +277,11 @@ func TestPopulateSQL(t *testing.T) {
 
 		cv.Convey("reading using sql query", func() {
 			cmd := dbflex.SQL("select * from " + tableName)
-			ms := []toolkit.M{}
+			ms := []codekit.M{}
 			err = conn.Cursor(cmd, nil).Fetchs(&ms, 0).Close()
 			cv.So(err, cv.ShouldBeNil)
 			cv.So(len(ms), cv.ShouldBeGreaterThan, 0)
-			cv.Printf("\ndata returned: %s\n", toolkit.JsonString(ms[:2]))
+			cv.Printf("\ndata returned: %s\n", codekit.JsonString(ms[:2]))
 		})
 	})
 }
