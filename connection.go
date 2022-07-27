@@ -306,3 +306,5 @@ func (c *Connection) IsTx() bool {
 func (c *Connection) Tx() *sql.Tx {
 	return c.tx
 }
+
+// trigger versioning
