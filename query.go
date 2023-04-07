@@ -25,8 +25,8 @@ func (q *Query) Cursor(in codekit.M) dbflex.ICursor {
 	cursor.SetThis(cursor)
 
 	ct := q.Config(dbflex.ConfigKeyCommandType, dbflex.QuerySelect).(string)
-	if ct != dbflex.QuerySelect && ct != dbflex.QuerySQL {
-		cursor.SetError(fmt.Errorf("cursor is used for only select command"))
+	if ct != dbflex.QuerySelect && ct != dbflex.QuerySQL && ct != dbflex.QueryCommand {
+		cursor.SetError(fmt.Errorf("cursor is used for only select command, current op is %s", ct))
 		return cursor
 	}
 
@@ -153,9 +153,9 @@ func CleanupSQL(s string) string {
 
 func tsValue(dt time.Time) string {
 	if dt.IsZero() {
-		return codekit.Date2String(dt.Local(), "'yyyy-MM-dd HH:mm:ss T'")
+		return codekit.Date2String(dt.Local(), "'yyyy-MM-dd HH:mm:ss TZ'")
 	}
-	return codekit.Date2String(dt, "'yyyy-MM-dd HH:mm:ss T'")
+	return codekit.Date2String(dt, "'yyyy-MM-dd HH:mm:ss TZ'")
 }
 
 func (qr *Query) ValueToSQlValue(v interface{}) string {

@@ -19,6 +19,8 @@ type Connection struct {
 	rdbms.Connection
 	db *sql.DB
 	tx *sql.Tx
+
+	txIsDisabled bool
 }
 
 func init() {
@@ -179,7 +181,6 @@ func createCommandForUpdatingTable(c dbflex.IConnection, name string, obj interf
 	if e != nil {
 		return "", errors.New("unable to get table meta. " + e.Error())
 	}
-	//fmt.Println(tableFields)
 
 	// convert fields to map to ease comparison
 	mfs := make(map[string]codekit.M, len(tableFields))
@@ -211,29 +212,35 @@ func createCommandForUpdatingTable(c dbflex.IConnection, name string, obj interf
 		if alias != "" {
 			fieldName = alias
 		}
+		dbType := f.Tag.Get("DBType")
 		fieldType := f.Type.String()
 
 		// check if field already exist
 		old, exist := mfs[strings.ToLower(fieldName)]
 
-		if fieldType == "string" {
-			fieldType = "text"
-		} else if fieldType != "interface{}" && strings.HasPrefix(fieldType, "int") {
-			fieldType = "integer"
-		} else if strings.Contains(fieldType, "time.Time") {
-			fieldType = "timestamptz"
-		} else if fieldType == "float32" {
-			fieldType = "numeric (32,8)"
-		} else if fieldType == "float64" {
-			fieldType = "numeric (64,8)"
-		} else if fieldType == "bool" {
-			fieldType = "boolean"
+		if dbType == "" {
+			if fieldType == "string" {
+				fieldType = "text"
+			} else if fieldType != "interface{}" && strings.HasPrefix(fieldType, "int") {
+				fieldType = "integer"
+			} else if strings.Contains(fieldType, "time.Time") {
+				fieldType = "timestamptz"
+			} else if fieldType == "float32" {
+				fieldType = "numeric (32,8)"
+			} else if fieldType == "float64" {
+				fieldType = "numeric (64,8)"
+			} else if fieldType == "bool" {
+				fieldType = "boolean"
+			} else {
+				return "", fmt.Errorf("field %s has unmapped pg data type. %s", fieldName, fieldType)
+			}
 		} else {
-			return "", fmt.Errorf("field %s has unmapped pg data type. %s", fieldName, fieldType)
+			fieldType = dbType
 		}
 
 		if exist {
-			if fieldType != strings.ToLower(old.GetString("udt_name")) {
+			oldUdtName := strings.ToLower(old.GetString("udt_name"))
+			if fieldType != oldUdtName {
 				hasChange = true
 				fields = append(fields, fmt.Sprintf("alter %s type %s", strings.ToLower(fieldName), fieldType))
 			}
@@ -249,6 +256,8 @@ func createCommandForUpdatingTable(c dbflex.IConnection, name string, obj interf
 				notnull += " 'F'"
 			case "timestamptz":
 				notnull += "to_timestamp(0)"
+			default:
+				notnull += "''"
 			}
 			fields = append(fields, fmt.Sprintf("add %s %s %s", strings.ToLower(fieldName), fieldType, notnull))
 		}
@@ -264,6 +273,9 @@ func createCommandForUpdatingTable(c dbflex.IConnection, name string, obj interf
 func (c *Connection) BeginTx() error {
 	if c.IsTx() {
 		return errors.New("already in transaction mode. Please commit or rollback first")
+	}
+	if c.txIsDisabled {
+		return errors.New("tx is disabled")
 	}
 	tx, e := c.db.Begin()
 	if e != nil {
@@ -297,6 +309,10 @@ func (c *Connection) RollBack() error {
 
 func (c *Connection) SupportTx() bool {
 	return true
+}
+
+func (c *Connection) DisableTx(disable bool) {
+	c.txIsDisabled = disable
 }
 
 func (c *Connection) IsTx() bool {

@@ -13,7 +13,7 @@ import (
 )
 
 var (
-	connString = "postgres://localhost/testdb?sslmode=disable&binary_parameters=yes"
+	connString = "postgres://testdb:Password.1@localhost/testdb?sslmode=disable&binary_parameters=yes"
 	tableName  = "testable"
 )
 
@@ -171,7 +171,7 @@ func TestDate(t *testing.T) {
 	})
 }
 
-func TestRollback(t *testing.T) {
+func TestTxRollback(t *testing.T) {
 	cv.Convey("connecting", t, func() {
 		conn, err := connect()
 		cv.So(err, cv.ShouldBeNil)
@@ -220,7 +220,7 @@ func TestRollback(t *testing.T) {
 	})
 }
 
-func TestCommit(t *testing.T) {
+func TestTxCommit(t *testing.T) {
 	cv.Convey("connecting", t, func() {
 		conn, err := connect()
 		cv.So(err, cv.ShouldBeNil)
@@ -286,15 +286,32 @@ func TestPopulateSQL(t *testing.T) {
 	})
 }
 
+func TestPopulateCommand(t *testing.T) {
+	cv.Convey("connecting", t, func() {
+		conn, err := connect()
+		cv.So(err, cv.ShouldBeNil)
+		defer conn.Close()
+
+		cv.Convey("reading using sql query", func() {
+			cmd := dbflex.From(tableName).Command("command", "select * from "+tableName)
+			ms := []codekit.M{}
+			err = conn.Cursor(cmd, nil).Fetchs(&ms, 0).Close()
+			cv.So(err, cv.ShouldBeNil)
+			cv.So(len(ms), cv.ShouldBeGreaterThan, 0)
+			cv.Printf("\ndata returned: %s\n", codekit.JsonString(ms[:2]))
+		})
+	})
+}
+
 type TestData struct {
-	ID      string
+	ID      string `DBType:"varchar(32)"`
 	Title   string
 	DataDec float64
 	Created time.Time
 }
 
 type TestDataNew struct {
-	ID      string
+	ID      string `DBType:"varchar(32)"`
 	Title   string
 	Name    string
 	DataDec float64
