@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"git.kanosolution.net/kano/dbflex/drivers/rdbms"
+	"github.com/sebarcode/codekit"
 )
 
 // Cursor represent cursor object. Inherits Cursor object of rdbms drivers and implementation of dbflex.ICursor
@@ -21,27 +22,55 @@ func (c *Cursor) CastValue(value interface{}, typeName string) (interface{}, err
 			err = errors.New(r.(string))
 		}
 
-		switch value.(type) {
-		case int, int8, int16, int32, int64:
-			d = int(value.(int64))
+		switch value := value.(type) {
+		case int:
+			d = value
+
+		case int8:
+			d = int(value)
+
+		case int16:
+			d = int(value)
+
+		case int32:
+			d = int(value)
+
+		case int64:
+			d = int(value)
 
 		case float32:
-			d = value.(float32)
+			d = value
 
 		case float64:
-			d = value.(float64)
+			d = value
 
 		case time.Time:
-			d = value.(time.Time)
+			d = value
+
+		case *time.Time:
+			d = value
 
 		case bool:
-			d = value.(bool)
+			d = value
 
 		case string:
-			d = value.(string)
+			d = value
 
 		default:
-			d = string(value.([]byte))
+			str := string(value.([]byte))
+			switch typeName {
+			case "codekit.M":
+				if str == "null" {
+					d = nil
+				} else {
+					m := codekit.M{}
+					err = codekit.UnjsonFromString(str, &m)
+					d = m
+				}
+
+			default:
+				d = string(value.([]byte))
+			}
 		}
 	}()
 
