@@ -89,29 +89,34 @@ func (c *Connection) DropTable(name string) error {
 
 func (c *Connection) EnsureTable(name string, keys []string, obj interface{}) error {
 	var e error
-	cmdTxt := ""
+	cmdTxts := []string{}
 	if !c.HasTable(name) {
-		if cmdTxt, e = createCommandForCreateTable(name, keys, obj); e != nil {
+		if cmdTxt, e := createCommandForCreateTable(name, keys, obj); e != nil {
 			return e
+		} else {
+			cmdTxts = append(cmdTxts, cmdTxt)
 		}
 	} else {
-		if cmdTxt, e = createCommandForUpdatingTable(c, name, obj); e != nil {
+		if cmdTxts, e = createCommandForUpdatingTable(c, name, obj); e != nil {
 			return e
 		}
-		if cmdTxt == "" {
+		if len(cmdTxts) == 0 {
 			return nil
 		}
 	}
 
-	if c.IsTx() {
-		_, e = c.tx.Exec(cmdTxt)
-	} else {
-		_, e = c.db.Exec(cmdTxt)
+	for _, cmdTxt := range cmdTxts {
+		dbflex.Logger().Info(cmdTxt)
+		if c.IsTx() {
+			_, e = c.tx.Exec(cmdTxt)
+		} else {
+			_, e = c.db.Exec(cmdTxt)
+		}
+		if e != nil {
+			return fmt.Errorf("error: %s command: %s", e.Error(), cmdTxt)
+		}
 	}
 
-	if e != nil {
-		return fmt.Errorf("error: %s command: %s", e.Error(), cmdTxt)
-	}
 	return nil
 }
 
@@ -139,7 +144,7 @@ func createCommandForCreateTable(name string, keys []string, obj interface{}) (s
 			}
 			fieldType := f.Type.String()
 			if fieldType == "string" {
-				fieldType = "text"
+				fieldType = "varchar(255)"
 			} else if fieldType != "interface{}" && strings.HasPrefix(fieldType, "int") {
 				fieldType = "integer"
 			} else if strings.Contains(fieldType, "time.Time") {
@@ -151,7 +156,7 @@ func createCommandForCreateTable(name string, keys []string, obj interface{}) (s
 			} else if fieldType == "bool" {
 				fieldType = "boolean"
 			} else {
-				return "", fmt.Errorf("field %s has unmapped pg data type. %s", fieldName, fieldType)
+				fieldType = "jsonb"
 			}
 			options := []string{}
 			if codekit.HasMember(keys, originalFieldName) || codekit.HasMember(keys, fieldName) {
@@ -172,14 +177,16 @@ func createCommandForCreateTable(name string, keys []string, obj interface{}) (s
 	return fmt.Sprintf(tableCreateCommand, name, strings.Join(fields, ", ")), nil
 }
 
-func createCommandForUpdatingTable(c dbflex.IConnection, name string, obj interface{}) (string, error) {
+func createCommandForUpdatingTable(c dbflex.IConnection, name string, obj interface{}) ([]string, error) {
+	res := []string{}
+
 	// get fields
 	name = strings.ToLower(name)
 	tableFields := []codekit.M{}
-	sql := "select column_name,udt_name,is_nullable isnull from information_schema.columns where table_name='" + name + "'"
+	sql := "select column_name,udt_name,is_nullable as isnull, 0::bool as included from information_schema.columns where table_name='" + name + "' order by ordinal_position"
 	e := c.Cursor(dbflex.SQL(sql), nil).Fetchs(&tableFields, 0).Close()
 	if e != nil {
-		return "", errors.New("unable to get table meta. " + e.Error())
+		return res, errors.New("unable to get table meta. " + e.Error())
 	}
 
 	// convert fields to map to ease comparison
@@ -196,7 +203,7 @@ func createCommandForUpdatingTable(c dbflex.IConnection, name string, obj interf
 	}
 
 	if v.Kind() != reflect.Struct {
-		return "", errors.New("object should be a struct")
+		return res, errors.New("object should be a struct")
 	}
 
 	t := v.Type()
@@ -220,7 +227,7 @@ func createCommandForUpdatingTable(c dbflex.IConnection, name string, obj interf
 
 		if dbType == "" {
 			if fieldType == "string" {
-				fieldType = "text"
+				fieldType = "varchar(255)"
 			} else if fieldType != "interface{}" && strings.HasPrefix(fieldType, "int") {
 				fieldType = "integer"
 			} else if strings.Contains(fieldType, "time.Time") {
@@ -232,7 +239,7 @@ func createCommandForUpdatingTable(c dbflex.IConnection, name string, obj interf
 			} else if fieldType == "bool" {
 				fieldType = "boolean"
 			} else {
-				return "", fmt.Errorf("field %s has unmapped pg data type. %s", fieldName, fieldType)
+				fieldType = "jsonb"
 			}
 		} else {
 			fieldType = dbType
@@ -244,6 +251,7 @@ func createCommandForUpdatingTable(c dbflex.IConnection, name string, obj interf
 				hasChange = true
 				fields = append(fields, fmt.Sprintf("alter %s type %s", strings.ToLower(fieldName), fieldType))
 			}
+			old.Set("included", true)
 		} else {
 			hasChange = true
 			notnull := "NOT NULL DEFAULT "
@@ -259,15 +267,22 @@ func createCommandForUpdatingTable(c dbflex.IConnection, name string, obj interf
 			default:
 				notnull += "''"
 			}
-			fields = append(fields, fmt.Sprintf("add %s %s %s", strings.ToLower(fieldName), fieldType, notnull))
+			fields = append(fields, fmt.Sprintf("add %s %s null", strings.ToLower(fieldName), fieldType))
 		}
 	}
 
 	if !hasChange {
-		return "", nil
+		return res, nil
+	}
+	res = append(res, fmt.Sprintf(tableUpdateCommand, name, strings.Join(fields, ",\n")))
+
+	for _, mf := range mfs {
+		if !mf.GetBool("included") {
+			res = append(res, fmt.Sprintf("alter table %s drop column %s", name, mf.GetString("column_name")))
+		}
 	}
 
-	return fmt.Sprintf(tableUpdateCommand, name, strings.Join(fields, ",\n")), nil
+	return res, nil
 }
 
 func (c *Connection) BeginTx() error {
@@ -324,3 +339,48 @@ func (c *Connection) Tx() *sql.Tx {
 }
 
 // trigger versioning
+
+func (c *Connection) EnsureIndex(tableName, idxName string, isUnique bool, fields ...string) error {
+	indexName := strings.ToLower(fmt.Sprintf("%s_%s", tableName, idxName))
+
+	res := []string{}
+	record := codekit.M{}
+	cmdGetIndexCount := fmt.Sprintf("SELECT count(*)::int as indexCount FROM pg_indexes WHERE indexname = '%s'", indexName)
+	c.Cursor(dbflex.SQL(cmdGetIndexCount), nil).Fetch(&record).Error()
+	if record.GetInt("indexcount") == 1 {
+		res = append(res, fmt.Sprintf("drop index %s", indexName))
+	}
+
+	for idx, field := range fields {
+		if strings.Index(field, ".") > 0 {
+			fieldParts := strings.Split(field, ".")
+			for fpIndex, fp := range fieldParts {
+				if fpIndex > 0 {
+					fieldParts[fpIndex] = fmt.Sprintf("'%s'", fp)
+				}
+			}
+			fields[idx] = fmt.Sprintf("(%s)", strings.Join(fieldParts, "->>"))
+		}
+	}
+
+	if isUnique {
+		res = append(res, fmt.Sprintf("create unique index %s on %s (%s)", indexName, tableName, strings.Join(fields, ", ")))
+	} else {
+		res = append(res, fmt.Sprintf("create index %s on %s (%s)", indexName, tableName, strings.Join(fields, ", ")))
+	}
+
+	var e error
+	for _, cmdTxt := range res {
+		dbflex.Logger().Info(cmdTxt)
+		if c.IsTx() {
+			_, e = c.tx.Exec(cmdTxt)
+		} else {
+			_, e = c.db.Exec(cmdTxt)
+		}
+		if e != nil {
+			return fmt.Errorf("error: %s command: %s", e.Error(), cmdTxt)
+		}
+	}
+
+	return nil
+}

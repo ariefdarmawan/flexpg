@@ -64,11 +64,11 @@ func (q *Query) Cursor(in codekit.M) dbflex.ICursor {
 func (q *Query) Execute(in codekit.M) (interface{}, error) {
 	cmdtype, ok := q.Config(dbflex.ConfigKeyCommandType, dbflex.QuerySelect).(string)
 	if !ok {
-		return nil, fmt.Errorf("Operation is unknown. current operation is %s", cmdtype)
+		return nil, fmt.Errorf("operation is unknown. current operation is %s", cmdtype)
 	}
 	cmdtxt := q.Config(dbflex.ConfigKeyCommand, "").(string)
 	if cmdtxt == "" {
-		return nil, fmt.Errorf("No command")
+		return nil, fmt.Errorf("no command found")
 	}
 
 	var (
@@ -89,7 +89,7 @@ func (q *Query) Execute(in codekit.M) (interface{}, error) {
 			newvalues := []string{}
 			for idx, field := range sqlfieldnames {
 				for _, find := range affectedfields {
-					if strings.ToLower(field) == strings.ToLower(find) {
+					if strings.EqualFold(strings.ToLower(field), strings.ToLower(find)) {
 						newfieldnames = append(newfieldnames, find)
 						newvalues = append(newvalues, sqlvalues[idx])
 					}
@@ -115,7 +115,7 @@ func (q *Query) Execute(in codekit.M) (interface{}, error) {
 		cmdtxt = strings.Replace(cmdtxt, "{{.FIELDVALUES}}", strings.Join(updatedfields, ","), -1)
 	}
 
-	//fmt.Println("Cmd: ", cmdtxt)
+	fmt.Println("Cmd: ", cmdtxt)
 	var (
 		r   sql.Result
 		err error
@@ -153,9 +153,9 @@ func CleanupSQL(s string) string {
 
 func tsValue(dt time.Time) string {
 	if dt.IsZero() {
-		return codekit.Date2String(dt.Local(), "'yyyy-MM-dd HH:mm:ss TZ'")
+		return codekit.Date2String(dt, "'yyyy-MM-dd HH:mm:ss TH'")
 	}
-	return codekit.Date2String(dt, "'yyyy-MM-dd HH:mm:ss TZ'")
+	return codekit.Date2String(dt, "'yyyy-MM-dd HH:mm:ss TH'")
 }
 
 func (qr *Query) ValueToSQlValue(v interface{}) string {
@@ -164,16 +164,21 @@ func (qr *Query) ValueToSQlValue(v interface{}) string {
 		return fmt.Sprintf("%d", v)
 	case float32, float64:
 		return fmt.Sprintf("%f", v)
-	case time.Time:
-		return tsValue(v.(time.Time))
-	case *time.Time:
-		dt := v.(*time.Time)
-		return tsValue(*dt)
 	case bool:
-		if v.(bool) == true {
-			return "true"
+		vbool, ok := v.(bool)
+		if ok {
+			if vbool {
+				return "true"
+			} else {
+				return "false"
+			}
 		}
 		return "false"
+	case time.Time:
+		return tsValue(v.(time.Time)) + "::timestamptz"
+	case *time.Time:
+		dt := v.(*time.Time)
+		return tsValue(*dt) + "::timestamptz"
 	case string:
 		return fmt.Sprintf("'%s'", CleanupSQL(v.(string)))
 	default:
