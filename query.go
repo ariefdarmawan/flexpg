@@ -115,7 +115,7 @@ func (q *Query) Execute(in codekit.M) (interface{}, error) {
 		cmdtxt = strings.Replace(cmdtxt, "{{.FIELDVALUES}}", strings.Join(updatedfields, ","), -1)
 	}
 
-	fmt.Println("Cmd: ", cmdtxt)
+	//fmt.Println("Cmd: ", cmdtxt)
 	var (
 		r   sql.Result
 		err error
