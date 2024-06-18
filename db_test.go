@@ -8,12 +8,11 @@ import (
 	"git.kanosolution.net/kano/dbflex"
 	"github.com/sebarcode/codekit"
 	"github.com/sebarcode/logger"
-	"github.com/smartystreets/goconvey/convey"
 	cv "github.com/smartystreets/goconvey/convey"
 )
 
 var (
-	connString = "postgres://testdb:Password.1@localhost/testdb?sslmode=disable&binary_parameters=yes"
+	connString = "postgres://bssndb:Password_BSSN_2024@localhost:5432/bssn2024"
 	tableName  = "testable"
 )
 
@@ -77,7 +76,9 @@ func TestQueryM(t *testing.T) {
 		cv.So(err, cv.ShouldBeNil)
 		defer conn.Close()
 
-		convey.Convey("insert", func() {
+		conn.Execute(dbflex.From(tableName).Delete().Where(dbflex.Eq("id", "TestData1")), nil)
+
+		cv.Convey("insert", func() {
 			data := codekit.M{}.
 				Set("id", "TestData1").
 				Set("title", "Title aja lah").
@@ -86,7 +87,7 @@ func TestQueryM(t *testing.T) {
 
 			cmd := dbflex.From(tableName).Insert()
 			_, e := conn.Execute(cmd, codekit.M{}.Set("data", data))
-			cv.So(e, convey.ShouldBeNil)
+			cv.So(e, cv.ShouldBeNil)
 
 			cv.Convey("querying", func() {
 				cmd = dbflex.From(tableName).Select()
@@ -98,6 +99,7 @@ func TestQueryM(t *testing.T) {
 					err := cur.Fetchs(&ms, 0).Close()
 					cv.So(err, cv.ShouldBeNil)
 					cv.So(len(ms), cv.ShouldBeGreaterThan, 0)
+					cv.So(ms[0].GetString("title"), cv.ShouldEqual, data.GetString("title"))
 
 					logger.Logger().Infof("\nResults:\n%s\n", codekit.JsonString(ms))
 				})

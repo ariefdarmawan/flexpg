@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 	"strconv"
+	"strings"
 	"time"
 
 	"git.kanosolution.net/kano/dbflex/drivers/rdbms"
@@ -31,7 +32,21 @@ func (c *Cursor) CastValue(value interface{}, refType reflect.Type) (interface{}
 			err = errors.New(r.(string))
 		}
 
-		valueTypeString := reflect.ValueOf(value).Type().String()
+		valueTypeString := ""
+		rv := reflect.ValueOf(value)
+		rvk := rv.Kind()
+		switch rvk {
+		case reflect.Invalid:
+			d = value
+
+		default:
+			if rv.IsZero() {
+				valueTypeString = ""
+			} else {
+				valueTypeString = rv.Type().String()
+			}
+		}
+
 		if typeName == "" && valueTypeString != "" {
 			switch v := value.(type) {
 			case int:
@@ -78,11 +93,32 @@ func processByTypeName(value interface{}, refType reflect.Type, typeName string)
 		err error
 	)
 
-	if reflect.TypeOf(value).String() == typeName {
+	rv := reflect.ValueOf(value)
+	if rv.Kind() == reflect.Invalid {
 		return value, nil
 	}
+	str := ""
+	refTypeString := rv.Type().String()
+	if refTypeString == "[]uint8" {
+		str = string(value.([]byte))
+	} else if refTypeString == typeName {
+		return value, nil
+	} else if typeName == "int" && refTypeString != "interface{}" && strings.Contains(refTypeString, "int") {
+		str = fmt.Sprintf("%d", value)
+	} else if strings.HasPrefix(typeName, "float") {
+		str = fmt.Sprintf("%f", value)
+	} else if typeName == "time.Time" || typeName == "*time.Time" {
+		str = fmt.Sprintf("%s", value)
+	} else {
+		switch v := value.(type) {
+		case string:
+			str = v
 
-	str := fmt.Sprintf("%s", value)
+		case []uint8:
+			str = string(value.([]byte))
+		}
+	}
+
 	switch typeName {
 	case "codekit.M":
 		if str == "null" {
