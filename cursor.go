@@ -133,7 +133,7 @@ func processByTypeName(value interface{}, refType reflect.Type, typeName string)
 		d, err = strconv.Atoi(str)
 
 	case "time.Time", "*time.Time":
-		dateFormat := "yyyy-MM-dd HH:mm:ss TH"
+		dateFormat := "yyyy-MM-dd HH:mm:ss"
 		d = codekit.String2Date(str, dateFormat)
 
 	case "float32":
@@ -165,7 +165,7 @@ func processByTypeName(value interface{}, refType reflect.Type, typeName string)
 		if isSlice {
 			refSlice = refTypeElem
 		}
-		refTypeElem = refTypeElem.Elem()
+
 		if isStruct {
 			refTarget := createPtrFromType(refTypeElem).Interface()
 			err = json.Unmarshal([]byte(str), refTarget)

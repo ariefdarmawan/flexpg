@@ -142,22 +142,27 @@ func createCommandForCreateTable(name string, keys []string, obj interface{}) (s
 			if alias != "" {
 				fieldName = alias
 			}
-			fieldType := f.Type.String()
-			if fieldType == "string" {
-				fieldType = "varchar(255)"
-			} else if fieldType != "interface{}" && strings.HasPrefix(fieldType, "int") {
-				fieldType = "integer"
-			} else if strings.Contains(fieldType, "time.Time") {
-				fieldType = "timestamptz"
-			} else if fieldType == "float32" {
-				fieldType = "numeric (32,8)"
-			} else if fieldType == "float64" {
-				fieldType = "numeric (64,8)"
-			} else if fieldType == "bool" {
-				fieldType = "boolean"
-			} else {
-				fieldType = "jsonb"
+
+			fieldType := f.Tag.Get("db_type")
+			if fieldType == "" {
+				fieldType = f.Type.String()
+				if fieldType == "string" {
+					fieldType = "varchar(255)"
+				} else if fieldType != "interface{}" && strings.HasPrefix(fieldType, "int") {
+					fieldType = "integer"
+				} else if strings.Contains(fieldType, "time.Time") {
+					fieldType = "timestamptz"
+				} else if fieldType == "float32" {
+					fieldType = "numeric (32,8)"
+				} else if fieldType == "float64" {
+					fieldType = "numeric (64,8)"
+				} else if fieldType == "bool" {
+					fieldType = "boolean"
+				} else {
+					fieldType = "jsonb"
+				}
 			}
+
 			options := []string{}
 			if codekit.HasMember(keys, originalFieldName) || codekit.HasMember(keys, fieldName) {
 				options = append(options, "PRIMARY KEY")
@@ -219,7 +224,7 @@ func createCommandForUpdatingTable(c dbflex.IConnection, name string, obj interf
 		if alias != "" {
 			fieldName = alias
 		}
-		dbType := f.Tag.Get("DBType")
+		dbType := f.Tag.Get("db_type")
 		fieldType := f.Type.String()
 
 		// check if field already exist
