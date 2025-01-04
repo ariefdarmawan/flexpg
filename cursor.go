@@ -99,15 +99,17 @@ func processByTypeName(value interface{}, refType reflect.Type, typeName string)
 	}
 	str := ""
 	refTypeString := rv.Type().String()
-	if refTypeString == "[]uint8" {
+	if refTypeString == typeName {
+		return value, nil
+	} else if strings.HasPrefix(refTypeString, "[]uint") {
 		str = string(value.([]byte))
 	} else if refTypeString == typeName {
 		return value, nil
-	} else if typeName == "int" && refTypeString != "interface{}" && strings.Contains(refTypeString, "int") {
+	} else if refTypeString != "interface{}" && strings.HasPrefix(refTypeString, "int") {
 		str = fmt.Sprintf("%d", value)
-	} else if strings.HasPrefix(typeName, "float") {
+	} else if strings.HasPrefix(refTypeString, "float") {
 		str = fmt.Sprintf("%f", value)
-	} else if typeName == "time.Time" || typeName == "*time.Time" {
+	} else if refTypeString == "time.Time" || refTypeString == "*time.Time" {
 		str = fmt.Sprintf("%s", value)
 	} else {
 		switch v := value.(type) {
@@ -133,7 +135,7 @@ func processByTypeName(value interface{}, refType reflect.Type, typeName string)
 		d, err = strconv.Atoi(str)
 
 	case "time.Time", "*time.Time":
-		dateFormat := "yyyy-MM-dd HH:mm:ss"
+		dateFormat := "yyyy-MM-dd HH:mm:ss TH"
 		d = codekit.String2Date(str, dateFormat)
 
 	case "float32":
