@@ -356,16 +356,31 @@ func (c *Connection) EnsureIndex(tableName, idxName string, isUnique bool, field
 		res = append(res, fmt.Sprintf("drop index %s", indexName))
 	}
 
+	var (
+		jsonbIndex bool
+	)
+
 	for idx, field := range fields {
 		if strings.Index(field, ".") > 0 {
 			fieldParts := strings.Split(field, ".")
+			if len(fieldParts) > 1 {
+				jsonbIndex = true
+			}
+
 			for fpIndex, fp := range fieldParts {
-				if fpIndex > 0 {
-					fieldParts[fpIndex] = fmt.Sprintf("'%s'", fp)
+				if fpIndex == len(fieldParts)-2 {
+					fieldParts[fpIndex] = fmt.Sprintf("'%s->>'", fp)
+				} else if fpIndex < len(fieldParts)-2 {
+					fieldParts[fpIndex] = fmt.Sprintf("'%s->'", fp)
 				}
 			}
-			fields[idx] = fmt.Sprintf("(%s)", strings.Join(fieldParts, "->>"))
+
+			fields[idx] = fmt.Sprintf("(%s) gin_trgm_ops", strings.Join(fieldParts, ""))
 		}
+	}
+
+	if jsonbIndex {
+		tableName = fmt.Sprintf("%s USING gin", tableName)
 	}
 
 	if isUnique {
