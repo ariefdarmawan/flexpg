@@ -368,10 +368,16 @@ func (c *Connection) EnsureIndex(tableName, idxName string, isUnique bool, field
 			}
 
 			for fpIndex, fp := range fieldParts {
+				if fpIndex > 0 {
+					fp = fmt.Sprintf("'%s'", fp)
+				}
+
 				if fpIndex == len(fieldParts)-2 {
-					fieldParts[fpIndex] = fmt.Sprintf("'%s->>'", fp)
+					fieldParts[fpIndex] = fmt.Sprintf("%s->>", fp)
 				} else if fpIndex < len(fieldParts)-2 {
-					fieldParts[fpIndex] = fmt.Sprintf("'%s->'", fp)
+					fieldParts[fpIndex] = fmt.Sprintf("%s->", fp)
+				} else {
+					fieldParts[fpIndex] = fp
 				}
 			}
 
