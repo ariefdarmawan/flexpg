@@ -105,8 +105,9 @@ func (c *Connection) EnsureTable(name string, keys []string, obj interface{}) er
 		}
 	}
 
+	logger := dbflex.Logger()
 	for _, cmdTxt := range cmdTxts {
-		dbflex.Logger().Info(cmdTxt)
+		logger.Info(cmdTxt)
 		if c.IsTx() {
 			_, e = c.tx.Exec(cmdTxt)
 		} else {

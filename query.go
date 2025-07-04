@@ -178,6 +178,10 @@ func (qr *Query) ValueToSQlValue(v interface{}) string {
 		return tsValue(v.(time.Time)) + "::timestamptz"
 	case *time.Time:
 		dt := v.(*time.Time)
+		if dt == nil {
+			dtZero := time.Date(1900, 1, 1, 0, 0, 0, 0, time.UTC)
+			return tsValue(dtZero) + "::timestamptz"
+		}
 		return tsValue(*dt) + "::timestamptz"
 	case string:
 		return fmt.Sprintf("'%s'", CleanupSQL(v.(string)))
