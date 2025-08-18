@@ -148,7 +148,7 @@ func createCommandForCreateTable(name string, keys []string, obj interface{}) (s
 			if fieldType == "" {
 				fieldType = f.Type.String()
 				if fieldType == "string" {
-					fieldType = "varchar(255)"
+					fieldType = "varchar"
 				} else if fieldType != "interface{}" && strings.HasPrefix(fieldType, "int") {
 					fieldType = "integer"
 				} else if strings.Contains(fieldType, "time.Time") {
@@ -233,7 +233,7 @@ func createCommandForUpdatingTable(c dbflex.IConnection, name string, obj interf
 
 		if dbType == "" {
 			if fieldType == "string" {
-				fieldType = "varchar(255)"
+				fieldType = "varchar"
 			} else if fieldType != "interface{}" && strings.HasPrefix(fieldType, "int") {
 				fieldType = "integer"
 			} else if strings.Contains(fieldType, "time.Time") {
