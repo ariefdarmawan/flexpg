@@ -47,6 +47,8 @@ func (q *Query) Cursor(in codekit.M) dbflex.ICursor {
 		rows *sql.Rows
 		err  error
 	)
+
+	dbflex.Logger().Debugf("execute command: %s", cmdtxt)
 	if q.conn.IsTx() {
 		rows, err = q.conn.tx.Query(cmdtxt)
 	} else {
@@ -120,6 +122,8 @@ func (q *Query) Execute(in codekit.M) (interface{}, error) {
 		r   sql.Result
 		err error
 	)
+
+	dbflex.Logger().Debugf("execute command: %s", cmdtxt)
 	if q.conn.IsTx() {
 		r, err = q.conn.tx.Exec(cmdtxt)
 	} else {
