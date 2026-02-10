@@ -48,14 +48,18 @@ func (q *Query) Cursor(in codekit.M) dbflex.ICursor {
 		err  error
 	)
 
-	dbflex.Logger().Debugf("execute command: %s", cmdtxt)
+	cmdTxtLogged := cmdtxt
+	if len(cmdTxtLogged) > 500 {
+		cmdTxtLogged = cmdTxtLogged[:500]
+	}
+	dbflex.Logger().Debugf("execute command: %s", cmdTxtLogged)
 	if q.conn.IsTx() {
 		rows, err = q.conn.tx.Query(cmdtxt)
 	} else {
 		rows, err = q.conn.db.Query(cmdtxt)
 	}
 	if rows == nil {
-		cursor.SetError(fmt.Errorf("%s. SQL Command: %s", err.Error(), cmdtxt))
+		cursor.SetError(fmt.Errorf("%s. SQL Command: %s", err.Error(), cmdTxtLogged))
 	} else {
 		cursor.SetFetcher(rows)
 	}
@@ -123,7 +127,11 @@ func (q *Query) Execute(in codekit.M) (interface{}, error) {
 		err error
 	)
 
-	dbflex.Logger().Debugf("execute command: %s", cmdtxt)
+	cmdTxtLogged := cmdtxt
+	if len(cmdTxtLogged) > 500 {
+		cmdTxtLogged = cmdTxtLogged[:500]
+	}
+	dbflex.Logger().Debugf("execute command: %s", cmdTxtLogged)
 	if q.conn.IsTx() {
 		r, err = q.conn.tx.Exec(cmdtxt)
 	} else {
@@ -131,7 +139,7 @@ func (q *Query) Execute(in codekit.M) (interface{}, error) {
 	}
 
 	if err != nil {
-		return nil, fmt.Errorf("%s. SQL Command: %s", err.Error(), cmdtxt)
+		return nil, fmt.Errorf("%s. SQL Command: %s", err.Error(), cmdTxtLogged)
 	}
 	return r, nil
 }
