@@ -50,6 +50,7 @@ func (c *Connection) Connect() error {
 		sqlconnstring = sqlconnstring + "?" + configs
 	}
 	db, err := sql.Open("postgres", sqlconnstring)
+	db.SetMaxIdleConns(0)
 	c.db = db
 	return err
 }
