@@ -5,7 +5,7 @@ go 1.21
 toolchain go1.24.1
 
 require (
-	git.kanosolution.net/kano/dbflex v1.3.6-0.20250104002425-1c63470f3871
+	git.kanosolution.net/kano/dbflex v1.3.10-0.20260826084343-a1d9e56f6d00
 	github.com/lib/pq v1.10.7
 	github.com/sebarcode/codekit v0.2.0
 	github.com/sebarcode/logger v0.1.1

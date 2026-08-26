@@ -4,13 +4,37 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 
 	"git.kanosolution.net/kano/dbflex"
 	"git.kanosolution.net/kano/dbflex/drivers/rdbms"
+	"github.com/lib/pq"
 	"github.com/sebarcode/codekit"
 )
+
+type insertResult struct {
+	firstAutoValue interface{}
+}
+
+func (r insertResult) LastInsertId() (int64, error) {
+	value := reflect.ValueOf(r.firstAutoValue)
+	if !value.IsValid() {
+		return 0, errors.New("insert did not return an auto value")
+	}
+	if value.Kind() >= reflect.Int && value.Kind() <= reflect.Int64 {
+		return value.Int(), nil
+	}
+	if value.Kind() >= reflect.Uint && value.Kind() <= reflect.Uint64 {
+		return int64(value.Uint()), nil
+	}
+	return 0, fmt.Errorf("generated value type %T cannot be returned as int64", r.firstAutoValue)
+}
+
+func (insertResult) RowsAffected() (int64, error) {
+	return 1, nil
+}
 
 // Query implementaion of dbflex.IQuery
 type Query struct {
@@ -83,6 +107,7 @@ func (q *Query) Execute(in codekit.M) (interface{}, error) {
 	)
 
 	data, hasData := in["data"]
+	autoFields, _ := in[dbflex.DataKeyAutoFields].([]string)
 	if !hasData && !(cmdtype == dbflex.QueryDelete || cmdtype == dbflex.QuerySelect) {
 		return nil, errors.New("non select and delete command should has data")
 	}
@@ -110,6 +135,12 @@ func (q *Query) Execute(in codekit.M) (interface{}, error) {
 	case dbflex.QueryInsert:
 		cmdtxt = strings.Replace(cmdtxt, "{{.FIELDS}}", strings.Join(sqlfieldnames, ","), -1)
 		cmdtxt = strings.Replace(cmdtxt, "{{.VALUES}}", strings.Join(sqlvalues, ","), -1)
+		if len(sqlfieldnames) == 0 {
+			cmdtxt = strings.Replace(cmdtxt, "() VALUES ()", "DEFAULT VALUES", 1)
+		}
+		if len(autoFields) > 0 {
+			cmdtxt += returningClause(autoFields)
+		}
 		//codekit.Printfn("\nCmd: %s", cmdtxt)
 
 	case dbflex.QueryUpdate:
@@ -132,6 +163,27 @@ func (q *Query) Execute(in codekit.M) (interface{}, error) {
 		cmdTxtLogged = cmdTxtLogged[:500]
 	}
 	dbflex.Logger().Debugf("execute command: %s", cmdTxtLogged)
+	if cmdtype == dbflex.QueryInsert && len(autoFields) > 0 {
+		tableName := q.Config(dbflex.ConfigKeyTableName, "").(string)
+		q.conn.clearAutoValues(tableName)
+		values := make([]interface{}, len(autoFields))
+		destinations := make([]interface{}, len(autoFields))
+		for idx := range values {
+			destinations[idx] = &values[idx]
+		}
+
+		var row *sql.Row
+		if q.conn.IsTx() {
+			row = q.conn.tx.QueryRow(cmdtxt)
+		} else {
+			row = q.conn.db.QueryRow(cmdtxt)
+		}
+		if err = row.Scan(destinations...); err != nil {
+			return nil, fmt.Errorf("%s. SQL Command: %s", err.Error(), cmdTxtLogged)
+		}
+		q.conn.setAutoValues(tableName, autoFields, values)
+		return insertResult{firstAutoValue: values[0]}, nil
+	}
 	if q.conn.IsTx() {
 		r, err = q.conn.tx.Exec(cmdtxt)
 	} else {
@@ -142,6 +194,14 @@ func (q *Query) Execute(in codekit.M) (interface{}, error) {
 		return nil, fmt.Errorf("%s. SQL Command: %s", err.Error(), cmdTxtLogged)
 	}
 	return r, nil
+}
+
+func returningClause(fieldNames []string) string {
+	quotedNames := make([]string, len(fieldNames))
+	for idx, fieldName := range fieldNames {
+		quotedNames[idx] = pq.QuoteIdentifier(fieldName)
+	}
+	return " RETURNING " + strings.Join(quotedNames, ",")
 }
 
 // ExecType to identify type of exec

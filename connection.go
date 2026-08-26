@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"sync"
 
 	"git.kanosolution.net/kano/dbflex"
 
@@ -21,7 +22,11 @@ type Connection struct {
 	tx *sql.Tx
 
 	txIsDisabled bool
+	autoValueMu  sync.Mutex
+	autoValues   map[string]map[string]interface{}
 }
+
+var _ dbflex.IAutoValueConnection = (*Connection)(nil)
 
 func init() {
 	dbflex.RegisterDriver("postgres", func(si *dbflex.ServerInfo) dbflex.IConnection {
@@ -75,6 +80,49 @@ func (c *Connection) NewQuery() dbflex.IQuery {
 	q.SetThis(q)
 	q.conn = c
 	return q
+}
+
+// GetAutoVal returns and consumes a value captured by INSERT ... RETURNING.
+func (c *Connection) GetAutoVal(tableName, fieldName string) (interface{}, error) {
+	c.autoValueMu.Lock()
+	defer c.autoValueMu.Unlock()
+
+	tableValues, ok := c.autoValues[tableName]
+	if !ok {
+		return nil, fmt.Errorf("no generated values found for table %s", tableName)
+	}
+	value, ok := tableValues[fieldName]
+	if !ok {
+		return nil, fmt.Errorf("generated value for %s.%s was not returned", tableName, fieldName)
+	}
+
+	delete(tableValues, fieldName)
+	if len(tableValues) == 0 {
+		delete(c.autoValues, tableName)
+	}
+	return value, nil
+}
+
+func (c *Connection) setAutoValues(tableName string, fieldNames []string, values []interface{}) {
+	c.autoValueMu.Lock()
+	defer c.autoValueMu.Unlock()
+
+	if c.autoValues == nil {
+		c.autoValues = map[string]map[string]interface{}{}
+	}
+	tableValues := make(map[string]interface{}, len(fieldNames))
+	for idx, fieldName := range fieldNames {
+		if idx < len(values) {
+			tableValues[fieldName] = values[idx]
+		}
+	}
+	c.autoValues[tableName] = tableValues
+}
+
+func (c *Connection) clearAutoValues(tableName string) {
+	c.autoValueMu.Lock()
+	defer c.autoValueMu.Unlock()
+	delete(c.autoValues, tableName)
 }
 
 func (c *Connection) DropTable(name string) error {
