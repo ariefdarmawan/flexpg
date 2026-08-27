@@ -257,6 +257,10 @@ func (qr *Query) ValueToSQlValue(v interface{}) string {
 		return tsValue(*dt) + "::timestamptz"
 	case string:
 		return fmt.Sprintf("'%s'", CleanupSQL(v.(string)))
+	case []byte:
+		// Use PostgreSQL's bytea decoder so binary payloads are preserved without
+		// interpreting arbitrary bytes as text or JSON.
+		return fmt.Sprintf("decode('%x', 'hex')", v.([]byte))
 	default:
 		return fmt.Sprintf("'%s'", CleanupSQL(fmt.Sprintf("%v", codekit.JsonString(v))))
 	}
