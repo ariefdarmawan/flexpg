@@ -311,15 +311,19 @@ func createCommandForUpdatingTableFields(name string, obj interface{}, tableFiel
 
 func pgFieldType(f reflect.StructField) string {
 	if dbType := f.Tag.Get("db_type"); dbType != "" {
-		return dbType
+		return normalizePGFieldType(dbType)
 	}
 
 	fieldType := f.Type.String()
 	switch {
 	case fieldType == "string":
 		return "varchar"
+	case fieldType == "int16":
+		return "int2"
+	case fieldType == "int64":
+		return "int8"
 	case fieldType != "interface{}" && strings.HasPrefix(fieldType, "int"):
-		return "integer"
+		return "int4"
 	case strings.Contains(fieldType, "time.Time"):
 		return "timestamptz"
 	case fieldType == "float32":
@@ -330,6 +334,23 @@ func pgFieldType(f reflect.StructField) string {
 		return "boolean"
 	default:
 		return "jsonb"
+	}
+}
+
+// normalizePGFieldType keeps model tags compatible with PostgreSQL's
+// canonical type names returned by information_schema. This lets EnsureTable
+// recognize an existing integer column and add its identity generator instead
+// of repeatedly attempting a type change.
+func normalizePGFieldType(fieldType string) string {
+	switch strings.ToLower(strings.TrimSpace(fieldType)) {
+	case "smallint", "int2":
+		return "int2"
+	case "int", "integer", "int4":
+		return "int4"
+	case "bigint", "int8":
+		return "int8"
+	default:
+		return fieldType
 	}
 }
 
