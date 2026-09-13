@@ -381,7 +381,8 @@ func pgTypesEquivalent(expected, actual string) bool {
 
 func pgTypeFamily(fieldType string) string {
 	switch {
-	case fieldType == "text", fieldType == "varchar", fieldType == "character varying":
+	case fieldType == "text", fieldType == "varchar", fieldType == "character varying",
+		fieldType == "char", fieldType == "character", fieldType == "bpchar":
 		return "string"
 	case fieldType == "numeric", fieldType == "decimal",
 		strings.HasPrefix(fieldType, "numeric "), strings.HasPrefix(fieldType, "numeric("),

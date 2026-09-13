@@ -96,6 +96,19 @@ func TestUpdatingTableKeepsCompatiblePostgresTypes(t *testing.T) {
 	}
 }
 
+func TestUpdatingTableKeepsLegacyFixedCharacterType(t *testing.T) {
+	commands, err := createCommandForUpdatingTableFields("compatible_items", ensureTableCompatibleTypesModel{}, []codekit.M{
+		codekit.M{}.Set("column_name", "name").Set("udt_name", "bpchar").Set("is_identity", "NO").Set("column_default", ""),
+		codekit.M{}.Set("column_name", "value").Set("udt_name", "numeric").Set("is_identity", "NO").Set("column_default", ""),
+	})
+	if err != nil {
+		t.Fatalf("update command failed: %v", err)
+	}
+	if len(commands) != 0 {
+		t.Fatalf("legacy fixed-character columns should be preserved: %#v", commands)
+	}
+}
+
 func TestPostgresTypeCompatibilityDoesNotHideRealChanges(t *testing.T) {
 	if pgTypesEquivalent("text", "int4") {
 		t.Fatal("text and int4 must not be treated as equivalent")
