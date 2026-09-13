@@ -286,7 +286,7 @@ func createCommandForUpdatingTableFields(name string, obj interface{}, tableFiel
 
 		if exist {
 			oldUdtName := strings.ToLower(old.GetString("udt_name"))
-			if fieldType != oldUdtName {
+			if !pgTypesEquivalent(fieldType, oldUdtName) {
 				hasChange = true
 				fields = append(fields, fmt.Sprintf("alter %s type %s", strings.ToLower(fieldName), fieldType))
 			}
@@ -366,6 +366,31 @@ func normalizePGFieldType(fieldType string) string {
 		return "int8"
 	default:
 		return fieldType
+	}
+}
+
+func pgTypesEquivalent(expected, actual string) bool {
+	expected = strings.ToLower(strings.TrimSpace(normalizePGFieldType(expected)))
+	actual = strings.ToLower(strings.TrimSpace(normalizePGFieldType(actual)))
+	if expected == actual {
+		return true
+	}
+
+	return pgTypeFamily(expected) != "" && pgTypeFamily(expected) == pgTypeFamily(actual)
+}
+
+func pgTypeFamily(fieldType string) string {
+	switch {
+	case fieldType == "text", fieldType == "varchar", fieldType == "character varying":
+		return "string"
+	case fieldType == "numeric", fieldType == "decimal",
+		strings.HasPrefix(fieldType, "numeric "), strings.HasPrefix(fieldType, "numeric("),
+		strings.HasPrefix(fieldType, "decimal "), strings.HasPrefix(fieldType, "decimal("):
+		return "numeric"
+	case fieldType == "bool", fieldType == "boolean":
+		return "boolean"
+	default:
+		return ""
 	}
 }
 
