@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net/url"
 	"reflect"
 	"strings"
 	"sync"
@@ -39,25 +40,39 @@ func init() {
 
 // Connect to database instance
 func (c *Connection) Connect() error {
-	sqlconnstring := fmt.Sprintf("%s/%s", c.Host, c.Database)
-	if c.User != "" {
-		sqlconnstring = fmt.Sprintf("%s:%s@%s", c.User, c.Password, sqlconnstring)
+	db, err := sql.Open("postgres", c.connectionString())
+	if err != nil {
+		return err
 	}
-	sqlconnstring = "postgres://" + sqlconnstring
-	configs := strings.Join(func() []string {
-		var out []string
-		for k, v := range c.Config {
-			out = append(out, fmt.Sprintf("%s=%s", k, v))
-		}
-		return out
-	}(), "&")
-	if configs != "" {
-		sqlconnstring = sqlconnstring + "?" + configs
-	}
-	db, err := sql.Open("postgres", sqlconnstring)
 	db.SetMaxIdleConns(0)
 	c.db = db
-	return err
+	return nil
+}
+
+func (c *Connection) connectionString() string {
+	u := &url.URL{
+		Scheme: "postgres",
+		Host:   c.Host,
+		Path:   "/" + strings.TrimPrefix(c.Database, "/"),
+	}
+	if c.User != "" {
+		u.User = url.UserPassword(c.User, c.Password)
+	}
+
+	query := url.Values{}
+	sslRoot := ""
+	for key, value := range c.Config {
+		if strings.EqualFold(strings.TrimSpace(key), "sslroot") {
+			sslRoot = fmt.Sprint(value)
+			continue
+		}
+		query.Set(key, fmt.Sprint(value))
+	}
+	if query.Get("sslrootcert") == "" && sslRoot != "" {
+		query.Set("sslrootcert", sslRoot)
+	}
+	u.RawQuery = query.Encode()
+	return u.String()
 }
 
 func (c *Connection) State() string {
