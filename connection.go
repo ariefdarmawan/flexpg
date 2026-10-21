@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/url"
 	"reflect"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -154,12 +156,15 @@ func (c *Connection) DropTable(name string) error {
 func (c *Connection) EnsureTable(name string, keys []string, obj interface{}) error {
 	var e error
 	cmdTxts := []string{}
-	if !c.HasTable(name) {
+	_, _, e = c.tableIdentity(name)
+	if errors.Is(e, sql.ErrNoRows) {
 		if cmdTxt, e := createCommandForCreateTable(name, keys, obj); e != nil {
 			return e
 		} else {
 			cmdTxts = append(cmdTxts, cmdTxt)
 		}
+	} else if e != nil {
+		return fmt.Errorf("unable to get table metadata: %w", e)
 	} else {
 		if cmdTxts, e = createCommandForUpdatingTable(c, name, obj); e != nil {
 			return e
@@ -232,14 +237,35 @@ func createCommandForCreateTable(name string, keys []string, obj interface{}) (s
 	return fmt.Sprintf(tableCreateCommand, name, strings.Join(fields, ", ")), nil
 }
 
-func createCommandForUpdatingTable(c dbflex.IConnection, name string, obj interface{}) ([]string, error) {
-	// get fields
-	name = strings.ToLower(name)
+func createCommandForUpdatingTable(c *Connection, name string, obj interface{}) ([]string, error) {
 	tableFields := []codekit.M{}
-	sql := "select column_name,udt_name,is_nullable as isnull,column_default,is_identity, 0::bool as included from information_schema.columns where table_name='" + name + "' order by ordinal_position"
-	e := c.Cursor(dbflex.SQL(sql), nil).Fetchs(&tableFields, 0).Close()
-	if e != nil {
-		return nil, errors.New("unable to get table meta. " + e.Error())
+	rows, err := c.schemaReader().Query(`SELECT a.attname, t.typname,
+		pg_catalog.format_type(a.atttypid, a.atttypmod),
+		a.attidentity <> '', COALESCE(pg_catalog.pg_get_expr(d.adbin, d.adrelid), '')
+		FROM pg_catalog.pg_attribute a
+		JOIN pg_catalog.pg_type t ON t.oid = a.atttypid
+		LEFT JOIN pg_catalog.pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
+		WHERE a.attrelid = pg_catalog.to_regclass($1) AND a.attnum > 0 AND NOT a.attisdropped
+		ORDER BY a.attnum`, name)
+	if err != nil {
+		return nil, fmt.Errorf("unable to get table metadata: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var column, udt, formatted, defaultValue string
+		var identity bool
+		if err := rows.Scan(&column, &udt, &formatted, &identity, &defaultValue); err != nil {
+			return nil, fmt.Errorf("unable to read column metadata: %w", err)
+		}
+		isIdentity := "NO"
+		if identity {
+			isIdentity = "YES"
+		}
+		tableFields = append(tableFields, codekit.M{"column_name": column, "udt_name": udt,
+			"formatted_type": formatted, "is_identity": isIdentity, "column_default": defaultValue})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("unable to read column metadata: %w", err)
 	}
 	return createCommandForUpdatingTableFields(name, obj, tableFields)
 }
@@ -286,7 +312,17 @@ func createCommandForUpdatingTableFields(name string, obj interface{}, tableFiel
 
 		if exist {
 			oldUdtName := strings.ToLower(old.GetString("udt_name"))
-			if !pgTypesEquivalent(fieldType, oldUdtName) {
+			sameType := pgTypesEquivalent(fieldType, oldUdtName)
+			// Explicit type modifiers are part of the requested specification.
+			// Inferred types keep the existing legacy compatibility policy.
+			if formatted := old.GetString("formatted_type"); formatted != "" {
+				if strings.Contains(f.Tag.Get("db_type"), "(") {
+					sameType = canonicalPGType(fieldType) == canonicalPGType(formatted)
+				} else {
+					sameType = sameType || canonicalPGType(fieldType) == canonicalPGType(formatted)
+				}
+			}
+			if !sameType {
 				hasChange = true
 				fields = append(fields, fmt.Sprintf("alter %s type %s", strings.ToLower(fieldName), fieldType))
 			}
@@ -370,13 +406,75 @@ func normalizePGFieldType(fieldType string) string {
 }
 
 func pgTypesEquivalent(expected, actual string) bool {
-	expected = strings.ToLower(strings.TrimSpace(normalizePGFieldType(expected)))
-	actual = strings.ToLower(strings.TrimSpace(normalizePGFieldType(actual)))
+	expected = canonicalPGType(pgTypeModifiers.ReplaceAllString(expected, ""))
+	actual = canonicalPGType(pgTypeModifiers.ReplaceAllString(actual, ""))
 	if expected == actual {
 		return true
 	}
 
 	return pgTypeFamily(expected) != "" && pgTypeFamily(expected) == pgTypeFamily(actual)
+}
+
+var pgTypeModifiers = regexp.MustCompile(`\s*\([^()]*\)`)
+
+func canonicalPGType(fieldType string) string {
+	fieldType = strings.ToLower(strings.Join(strings.Fields(fieldType), " "))
+	if strings.HasPrefix(fieldType, "_") {
+		return canonicalPGType(strings.TrimPrefix(fieldType, "_")) + "[]"
+	}
+	if strings.HasSuffix(fieldType, "[]") {
+		for strings.HasSuffix(fieldType, "[]") {
+			fieldType = strings.TrimSpace(strings.TrimSuffix(fieldType, "[]"))
+		}
+		return canonicalPGType(fieldType) + "[]"
+	}
+	base := pgTypeModifiers.ReplaceAllString(fieldType, "")
+	modifier := pgTypeModifiers.FindString(fieldType)
+	modifier = strings.ReplaceAll(modifier, " ", "")
+	switch base {
+	case "smallint", "int2", "smallserial", "serial2":
+		base = "int2"
+	case "int", "integer", "int4", "serial", "serial4":
+		base = "int4"
+	case "bigint", "int8", "bigserial", "serial8":
+		base = "int8"
+	case "character varying":
+		base = "varchar"
+	case "character", "char":
+		base = "bpchar"
+	case "decimal":
+		base = "numeric"
+	case "boolean":
+		base = "bool"
+	case "real":
+		base = "float4"
+	case "double precision":
+		base = "float8"
+	case "float":
+		if modifier == "" {
+			base = "float8"
+		} else if precision, err := strconv.Atoi(strings.Trim(modifier, "()")); err == nil && precision >= 1 && precision <= 53 {
+			base = "float8"
+			if precision <= 24 {
+				base = "float4"
+			}
+			modifier = ""
+		}
+	case "timestamp with time zone":
+		base = "timestamptz"
+	case "timestamp without time zone":
+		base = "timestamp"
+	case "time with time zone":
+		base = "timetz"
+	case "time without time zone":
+		base = "time"
+	case "bit varying":
+		base = "varbit"
+	}
+	if base == "numeric" && modifier != "" && !strings.Contains(modifier, ",") {
+		modifier = strings.TrimSuffix(modifier, ")") + ",0)"
+	}
+	return base + modifier
 }
 
 func pgTypeFamily(fieldType string) string {
@@ -467,15 +565,13 @@ func (c *Connection) Tx() *sql.Tx {
 // trigger versioning
 
 func (c *Connection) EnsureIndex(tableName, idxName string, isUnique bool, fields ...string) error {
-	indexName := strings.ToLower(fmt.Sprintf("%s_%s", tableName, idxName))
-
-	res := []string{}
-	record := codekit.M{}
-	cmdGetIndexCount := fmt.Sprintf("SELECT count(*)::int as indexCount FROM pg_indexes WHERE indexname = '%s'", indexName)
-	c.Cursor(dbflex.SQL(cmdGetIndexCount), nil).Fetch(&record).Error()
-	if record.GetInt("indexcount") == 1 {
-		res = append(res, fmt.Sprintf("drop index %s", indexName))
+	schema, table, err := c.tableIdentity(tableName)
+	if err != nil {
+		return fmt.Errorf("unable to get index table metadata: %w", err)
 	}
+	indexName := strings.ToLower(fmt.Sprintf("%s_%s", table, idxName))
+	// Do not change the caller's index definition when expanding JSON paths.
+	fields = append([]string(nil), fields...)
 
 	var (
 		jsonbIndex bool
@@ -487,33 +583,42 @@ func (c *Connection) EnsureIndex(tableName, idxName string, isUnique bool, field
 			if len(fieldParts) > 1 {
 				jsonbIndex = true
 			}
-
-			for fpIndex, fp := range fieldParts {
-				if fpIndex > 0 {
-					fp = fmt.Sprintf("'%s'", fp)
+			// Match PostgreSQL's deparsed JSON expression, including its text casts.
+			expression := fieldParts[0]
+			for part := 1; part < len(fieldParts); part++ {
+				op := "->"
+				if part == len(fieldParts)-1 {
+					op = "->>"
 				}
-
-				if fpIndex == len(fieldParts)-2 {
-					fieldParts[fpIndex] = fmt.Sprintf("%s->>", fp)
-				} else if fpIndex < len(fieldParts)-2 {
-					fieldParts[fpIndex] = fmt.Sprintf("%s->", fp)
-				} else {
-					fieldParts[fpIndex] = fp
-				}
+				expression = fmt.Sprintf("(%s %s '%s'::text)", expression, op, strings.ReplaceAll(fieldParts[part], "'", "''"))
 			}
-
-			fields[idx] = fmt.Sprintf("(%s) gin_trgm_ops", strings.Join(fieldParts, ""))
+			fields[idx] = "(" + expression + ") gin_trgm_ops"
 		}
 	}
 
+	method := "btree"
 	if jsonbIndex {
-		tableName = fmt.Sprintf("%s USING gin", tableName)
+		method = "gin"
 	}
+	qualifiedTable := quotePGName(schema, table)
+	qualifiedIndex := quotePGName(schema, indexName)
+	metadata, err := c.indexMetadata(qualifiedTable, indexName)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("unable to get index metadata: %w", err)
+	}
+	res := []string{}
+	if err == nil {
+		if metadata.matches(isUnique, method, fields) {
+			return nil
+		}
+		res = append(res, "drop index "+qualifiedIndex)
+	}
+	tableName = qualifiedTable + " USING " + method
 
 	if isUnique {
-		res = append(res, fmt.Sprintf("create unique index %s on %s (%s)", indexName, tableName, strings.Join(fields, ", ")))
+		res = append(res, fmt.Sprintf("create unique index %s on %s (%s)", quotePGIdentifier(indexName), tableName, strings.Join(fields, ", ")))
 	} else {
-		res = append(res, fmt.Sprintf("create index %s on %s (%s)", indexName, tableName, strings.Join(fields, ", ")))
+		res = append(res, fmt.Sprintf("create index %s on %s (%s)", quotePGIdentifier(indexName), tableName, strings.Join(fields, ", ")))
 	}
 
 	var e error
